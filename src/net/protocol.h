@@ -24,6 +24,8 @@ enum class PacketType : std::uint16_t {
     PartyDisbandReq = 106,
     PartyDisbandRes = 107,
     PartyEvent = 108,
+    MatchReq = 400,
+    MatchFoundNotify = 401,
     GuildCreateReq = 200,
     GuildCreateRes = 201,
     GuildJoinReq = 202,
@@ -31,9 +33,15 @@ enum class PacketType : std::uint16_t {
     GuildLeaveReq = 204,
     GuildLeaveRes = 205,
     GuildEvent = 206,
+    DungeonEnterReq = 500,
+    DungeonEnterRes = 501,
+    DungeonResultNotify = 502,
+    DungeonResultRes = 503,
     ChatSendReq = 300,
     ChatSendRes = 301,
-    ChatEvent = 302
+    ChatEvent = 302,
+    InventoryUpdateNotify = 600,
+    InventoryUpdateRes = 601
 };
 
 struct LoginRequest {
@@ -163,6 +171,81 @@ struct PartyEvent {
     std::string message;
 };
 
+struct MatchRequest {
+    std::uint64_t party_id{0};
+    std::uint32_t dungeon_id{0};
+    std::string difficulty;
+};
+
+struct MatchFoundNotify {
+    bool success{false};
+    std::string code;
+    std::string message;
+    std::uint64_t party_id{0};
+    std::uint64_t instance_id{0};
+    std::string endpoint;
+    std::string ticket;
+};
+
+struct DungeonEnterRequest {
+    std::uint64_t instance_id{0};
+    std::string ticket;
+    std::uint64_t char_id{0};
+};
+
+enum class DungeonState : std::uint16_t {
+    Waiting = 0,
+    Ready = 1,
+    Playing = 2,
+    Clear = 3,
+    Fail = 4,
+    Terminate = 5
+};
+
+struct DungeonEnterResponse {
+    bool success{false};
+    std::string code;
+    std::string message;
+    DungeonState state{DungeonState::Waiting};
+    std::uint32_t seed{0};
+};
+
+enum class DungeonResultType : std::uint16_t {
+    Clear = 1,
+    Fail = 2
+};
+
+struct RewardItem {
+    std::uint32_t item_id{0};
+    std::uint32_t count{0};
+};
+
+struct DungeonResultNotify {
+    DungeonResultType result{DungeonResultType::Clear};
+    std::uint32_t time_sec{0};
+    std::uint16_t deaths{0};
+    std::vector<RewardItem> rewards;
+};
+
+struct DungeonResultResponse {
+    bool success{false};
+    std::string code;
+    std::string message;
+    std::string summary;
+};
+
+struct InventoryUpdateNotify {
+    std::uint64_t char_id{0};
+    std::vector<RewardItem> items;
+};
+
+struct InventoryUpdateResponse {
+    bool success{false};
+    std::string code;
+    std::string message;
+    std::uint64_t inventory_version{0};
+};
+
 enum class ChatChannel : std::uint16_t {
     Global = 1,
     Party = 2
@@ -263,6 +346,29 @@ bool decodePartyDisbandResponse(const std::vector<std::uint8_t> &payload,
 std::vector<std::uint8_t> encodePartyEvent(const PartyEvent &event);
 bool decodePartyEvent(const std::vector<std::uint8_t> &payload, PartyEvent &out);
 
+std::vector<std::uint8_t> encodeMatchRequest(const MatchRequest &request);
+bool decodeMatchRequest(const std::vector<std::uint8_t> &payload, MatchRequest &out);
+
+std::vector<std::uint8_t> encodeMatchFoundNotify(const MatchFoundNotify &notify);
+bool decodeMatchFoundNotify(const std::vector<std::uint8_t> &payload,
+                            MatchFoundNotify &out);
+
+std::vector<std::uint8_t> encodeDungeonEnterRequest(const DungeonEnterRequest &request);
+bool decodeDungeonEnterRequest(const std::vector<std::uint8_t> &payload,
+                               DungeonEnterRequest &out);
+
+std::vector<std::uint8_t> encodeDungeonEnterResponse(const DungeonEnterResponse &response);
+bool decodeDungeonEnterResponse(const std::vector<std::uint8_t> &payload,
+                                DungeonEnterResponse &out);
+
+std::vector<std::uint8_t> encodeDungeonResultNotify(const DungeonResultNotify &notify);
+bool decodeDungeonResultNotify(const std::vector<std::uint8_t> &payload,
+                               DungeonResultNotify &out);
+
+std::vector<std::uint8_t> encodeDungeonResultResponse(const DungeonResultResponse &response);
+bool decodeDungeonResultResponse(const std::vector<std::uint8_t> &payload,
+                                 DungeonResultResponse &out);
+
 std::vector<std::uint8_t> encodeChatSendRequest(const ChatSendRequest &request);
 bool decodeChatSendRequest(const std::vector<std::uint8_t> &payload,
                            ChatSendRequest &out);
@@ -273,5 +379,14 @@ bool decodeChatSendResponse(const std::vector<std::uint8_t> &payload,
 
 std::vector<std::uint8_t> encodeChatEvent(const ChatEvent &event);
 bool decodeChatEvent(const std::vector<std::uint8_t> &payload, ChatEvent &out);
+
+std::vector<std::uint8_t> encodeInventoryUpdateNotify(const InventoryUpdateNotify &notify);
+bool decodeInventoryUpdateNotify(const std::vector<std::uint8_t> &payload,
+                                 InventoryUpdateNotify &out);
+
+std::vector<std::uint8_t> encodeInventoryUpdateResponse(
+    const InventoryUpdateResponse &response);
+bool decodeInventoryUpdateResponse(const std::vector<std::uint8_t> &payload,
+                                   InventoryUpdateResponse &out);
 
 }  // namespace net

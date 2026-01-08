@@ -3,15 +3,20 @@
 #include "admin/logging.h"
 #include "chat/chat.h"
 #include "guild/guild.h"
+#include "inventory/in_memory_inventory_storage.h"
+#include "match/match_queue.h"
 #include "net/auth.h"
 #include "net/codec.h"
 #include "net/protocol.h"
 #include "net/session.h"
 #include "party/party.h"
+#include "dungeon/instance_manager.h"
+#include "reward/reward_service.h"
 
 #include <chrono>
 #include <memory>
 #include <optional>
+#include <random>
 #include <string>
 #include <unordered_map>
 
@@ -74,6 +79,17 @@ private:
     party::PartyService party_service_;
     guild::GuildService guild_service_;
     chat::ChatService chat_service_;
+    match::MatchQueue match_queue_{match::MatchRule{}};
+    dungeon::InstanceManager instance_manager_;
+    inventory::InMemoryInventoryStorage inventory_storage_;
+    reward::RewardService reward_service_;
+    std::unordered_map<party::PartyId, dungeon::InstanceId> party_instances_;
+    std::unordered_map<dungeon::InstanceId, std::string> instance_tickets_;
+    std::unordered_map<dungeon::InstanceId, std::uint32_t> instance_seeds_;
+    std::unordered_map<SessionId, dungeon::InstanceId> session_instances_;
+    std::unordered_map<SessionId, std::uint64_t> session_characters_;
+    std::mt19937 rng_{std::random_device{}()};
+    std::uint64_t next_reward_grant_id_{1};
     Metrics metrics_{};
     std::chrono::steady_clock::time_point started_at_;
     admin::StructuredLogger logger_{};

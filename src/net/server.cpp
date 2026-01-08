@@ -1,7 +1,9 @@
 #include "net/server.h"
 
 #include <chrono>
+#include <limits>
 #include <optional>
+#include <random>
 #include <sstream>
 #include <vector>
 
@@ -114,6 +116,8 @@ void Server::removeSession(SessionId id) {
     registry_.removeSession(id);
     party_service_.removeMember(id);
     guild_service_.removeMember(id);
+    session_instances_.erase(id);
+    session_characters_.erase(id);
 }
 
 std::shared_ptr<Session> Server::findSession(SessionId id) const {
@@ -295,6 +299,615 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
             return Codec::encode(static_cast<std::uint16_t>(PacketType::LogoutRes),
                                  header.version,
                                  encoded);
+        }
+        case PacketType::MatchReq: {
+            MatchRequest request;
+            if (!decodeMatchRequest(payload, request)) {
+                MatchFoundNotify response;
+                response.success = false;
+                response.code = "MALFORMED";
+                response.message = "Malformed match request";
+                auto encoded = encodeMatchFoundNotify(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = response.message;
+                logger_.log("warn", "match_request_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::MatchFoundNotify),
+                                     header.version,
+                                     encoded);
+            }
+
+            const auto *user = session.userContext().has_value()
+                                   ? &session.userContext().value()
+                                   : nullptr;
+            if (!user) {
+                MatchFoundNotify response;
+                response.success = false;
+                response.code = "UNAUTHENTICATED";
+                response.message = "Authentication required";
+                auto encoded = encodeMatchFoundNotify(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = response.message;
+                logger_.log("warn", "match_request_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::MatchFoundNotify),
+                                     header.version,
+                                     encoded);
+            }
+
+            std::uint64_t party_id = request.party_id;
+            if (party_id == 0) {
+                auto party_for_member = party_service_.partyForMember(session.id());
+                if (!party_for_member) {
+                    MatchFoundNotify response;
+                    response.success = false;
+                    response.code = "NO_PARTY";
+                    response.message = "Not in a party";
+                    auto encoded = encodeMatchFoundNotify(response);
+                    metrics_.error_total += 1;
+                    admin::LogFields fields = received_fields;
+                    fields.user_id = user->user_id;
+                    fields.reason = response.message;
+                    logger_.log("warn", "match_request_failed", response.message, fields);
+                    return Codec::encode(
+                        static_cast<std::uint16_t>(PacketType::MatchFoundNotify),
+                        header.version,
+                        encoded);
+                }
+                party_id = *party_for_member;
+            }
+
+            auto party_info = party_service_.getPartyInfo(party_id);
+            if (!party_info) {
+                MatchFoundNotify response;
+                response.success = false;
+                response.code = "PARTY_NOT_FOUND";
+                response.message = "Party not found";
+                auto encoded = encodeMatchFoundNotify(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "match_request_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::MatchFoundNotify),
+                                     header.version,
+                                     encoded);
+            }
+
+            bool is_member = false;
+            for (const auto &member : party_info->members) {
+                if (member.session_id == session.id()) {
+                    is_member = true;
+                    break;
+                }
+            }
+            if (!is_member) {
+                MatchFoundNotify response;
+                response.success = false;
+                response.code = "NOT_PARTY_MEMBER";
+                response.message = "Not authorized for match";
+                auto encoded = encodeMatchFoundNotify(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "match_request_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::MatchFoundNotify),
+                                     header.version,
+                                     encoded);
+            }
+
+            match::MatchCandidate candidate;
+            candidate.party_id = party_id;
+            candidate.mmr = 0;
+            candidate.party_size = party_info->members.size();
+            candidate.enqueue_time = now;
+            if (!match_queue_.enqueue(candidate)) {
+                MatchFoundNotify response;
+                response.success = false;
+                response.code = "QUEUE_REJECTED";
+                response.message = "Unable to enqueue for match";
+                auto encoded = encodeMatchFoundNotify(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "match_request_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::MatchFoundNotify),
+                                     header.version,
+                                     encoded);
+            }
+
+            std::optional<std::pair<match::MatchCandidate, match::MatchCandidate>> found =
+                match_queue_.findMatch(now);
+            std::vector<match::MatchCandidate> matches;
+            if (found) {
+                matches.push_back(found->first);
+                matches.push_back(found->second);
+            } else {
+                match_queue_.cancel(party_id);
+                matches.push_back(candidate);
+            }
+
+            std::optional<MatchFoundNotify> response_to_requester;
+            for (const auto &match_candidate : matches) {
+                auto instance_id = instance_manager_.createInstance(match_candidate.party_id,
+                                                                    party_service_);
+                if (!instance_id) {
+                    MatchFoundNotify response;
+                    response.success = false;
+                    response.code = "INSTANCE_FAILED";
+                    response.message = "Unable to create dungeon instance";
+                    metrics_.error_total += 1;
+                    admin::LogFields fields = received_fields;
+                    fields.user_id = user->user_id;
+                    fields.reason = response.message;
+                    logger_.log("warn", "match_request_failed", response.message, fields);
+                    return Codec::encode(
+                        static_cast<std::uint16_t>(PacketType::MatchFoundNotify),
+                        header.version,
+                        encodeMatchFoundNotify(response));
+                }
+
+                std::string ticket = admin::StructuredLogger::generateTraceId();
+                std::string endpoint = "dungeon.local:7777";
+                party_instances_[match_candidate.party_id] = *instance_id;
+                instance_tickets_[*instance_id] = ticket;
+                std::uniform_int_distribution<std::uint32_t> dist(
+                    1, std::numeric_limits<std::uint32_t>::max());
+                instance_seeds_[*instance_id] = dist(rng_);
+
+                MatchFoundNotify notify;
+                notify.success = true;
+                notify.code = "OK";
+                notify.message = "Match found";
+                notify.party_id = match_candidate.party_id;
+                notify.instance_id = *instance_id;
+                notify.endpoint = endpoint;
+                notify.ticket = ticket;
+
+                auto encoded = encodeMatchFoundNotify(notify);
+                auto frame = Codec::encode(
+                    static_cast<std::uint16_t>(PacketType::MatchFoundNotify),
+                    header.version,
+                    encoded);
+
+                auto notify_party_info = party_service_.getPartyInfo(match_candidate.party_id);
+                if (notify_party_info) {
+                    for (const auto &member : notify_party_info->members) {
+                        auto member_session = findSession(member.session_id);
+                        if (member_session) {
+                            session_instances_[member.session_id] = *instance_id;
+                            if (!(match_candidate.party_id == party_id &&
+                                  member.session_id == session.id())) {
+                                member_session->enqueueSend(
+                                    frame, std::chrono::steady_clock::now());
+                            }
+                        }
+                    }
+                }
+
+                if (match_candidate.party_id == party_id) {
+                    response_to_requester = notify;
+                }
+            }
+
+            if (!response_to_requester) {
+                MatchFoundNotify response;
+                response.success = false;
+                response.code = "MATCH_NOT_FOUND";
+                response.message = "Match not found";
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "match_request_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::MatchFoundNotify),
+                                     header.version,
+                                     encodeMatchFoundNotify(response));
+            }
+
+            admin::LogFields fields = received_fields;
+            fields.user_id = user->user_id;
+            fields.reason = response_to_requester->message;
+            logger_.log("info", "match_found", response_to_requester->message, fields);
+            return Codec::encode(static_cast<std::uint16_t>(PacketType::MatchFoundNotify),
+                                 header.version,
+                                 encodeMatchFoundNotify(*response_to_requester));
+        }
+        case PacketType::DungeonEnterReq: {
+            DungeonEnterRequest request;
+            if (!decodeDungeonEnterRequest(payload, request)) {
+                DungeonEnterResponse response;
+                response.success = false;
+                response.code = "MALFORMED";
+                response.message = "Malformed dungeon enter payload";
+                auto encoded = encodeDungeonEnterResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_enter_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonEnterRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            const auto *user = session.userContext().has_value()
+                                   ? &session.userContext().value()
+                                   : nullptr;
+            if (!user) {
+                DungeonEnterResponse response;
+                response.success = false;
+                response.code = "UNAUTHENTICATED";
+                response.message = "Authentication required";
+                auto encoded = encodeDungeonEnterResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_enter_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonEnterRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            auto instance = instance_manager_.getInstance(request.instance_id);
+            if (!instance) {
+                DungeonEnterResponse response;
+                response.success = false;
+                response.code = "INSTANCE_NOT_FOUND";
+                response.message = "Dungeon instance not found";
+                auto encoded = encodeDungeonEnterResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_enter_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonEnterRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            auto ticket_it = instance_tickets_.find(request.instance_id);
+            if (ticket_it == instance_tickets_.end() || ticket_it->second != request.ticket) {
+                DungeonEnterResponse response;
+                response.success = false;
+                response.code = "INVALID_TICKET";
+                response.message = "Invalid enter ticket";
+                auto encoded = encodeDungeonEnterResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_enter_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonEnterRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            auto party_info = party_service_.getPartyInfo(instance->party_id);
+            if (!party_info) {
+                DungeonEnterResponse response;
+                response.success = false;
+                response.code = "PARTY_NOT_FOUND";
+                response.message = "Party not found for instance";
+                auto encoded = encodeDungeonEnterResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_enter_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonEnterRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            bool is_member = false;
+            for (const auto &member : party_info->members) {
+                if (member.session_id == session.id()) {
+                    is_member = true;
+                    break;
+                }
+            }
+            if (!is_member) {
+                DungeonEnterResponse response;
+                response.success = false;
+                response.code = "NOT_PARTY_MEMBER";
+                response.message = "Not authorized for instance";
+                auto encoded = encodeDungeonEnterResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_enter_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonEnterRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            if (!instance_manager_.requestTransition(request.instance_id,
+                                                     dungeon::InstanceState::Ready,
+                                                     party_service_)) {
+                DungeonEnterResponse response;
+                response.success = false;
+                response.code = "INVALID_STATE";
+                response.message = "Dungeon not ready to enter";
+                auto encoded = encodeDungeonEnterResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_enter_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonEnterRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            session_characters_[session.id()] = request.char_id;
+            session_instances_[session.id()] = request.instance_id;
+
+            DungeonEnterResponse response;
+            response.success = true;
+            response.code = "OK";
+            response.message = "Dungeon entry accepted";
+            response.state = DungeonState::Ready;
+            response.seed = instance_seeds_[request.instance_id];
+            auto encoded = encodeDungeonEnterResponse(response);
+            admin::LogFields fields = received_fields;
+            fields.user_id = user->user_id;
+            fields.reason = response.message;
+            logger_.log("info", "dungeon_entered", response.message, fields);
+            return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonEnterRes),
+                                 header.version,
+                                 encoded);
+        }
+        case PacketType::DungeonResultNotify: {
+            DungeonResultNotify request;
+            if (!decodeDungeonResultNotify(payload, request)) {
+                DungeonResultResponse response;
+                response.success = false;
+                response.code = "MALFORMED";
+                response.message = "Malformed dungeon result payload";
+                response.summary = "result rejected";
+                auto encoded = encodeDungeonResultResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_result_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonResultRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            const auto *user = session.userContext().has_value()
+                                   ? &session.userContext().value()
+                                   : nullptr;
+            if (!user) {
+                DungeonResultResponse response;
+                response.success = false;
+                response.code = "UNAUTHENTICATED";
+                response.message = "Authentication required";
+                response.summary = "result rejected";
+                auto encoded = encodeDungeonResultResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_result_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonResultRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            auto instance_it = session_instances_.find(session.id());
+            if (instance_it == session_instances_.end()) {
+                DungeonResultResponse response;
+                response.success = false;
+                response.code = "NO_INSTANCE";
+                response.message = "No active dungeon instance";
+                response.summary = "result rejected";
+                auto encoded = encodeDungeonResultResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_result_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonResultRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            auto instance = instance_manager_.getInstance(instance_it->second);
+            if (!instance) {
+                DungeonResultResponse response;
+                response.success = false;
+                response.code = "INSTANCE_NOT_FOUND";
+                response.message = "Dungeon instance missing";
+                response.summary = "result rejected";
+                auto encoded = encodeDungeonResultResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_result_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonResultRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            dungeon::InstanceState next_state =
+                request.result == DungeonResultType::Clear ? dungeon::InstanceState::Clear
+                                                           : dungeon::InstanceState::Fail;
+            if (!instance_manager_.requestTransition(instance_it->second,
+                                                     next_state,
+                                                     party_service_)) {
+                DungeonResultResponse response;
+                response.success = false;
+                response.code = "INVALID_STATE";
+                response.message = "Dungeon state transition rejected";
+                response.summary = "result rejected";
+                auto encoded = encodeDungeonResultResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_result_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonResultRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            auto char_it = session_characters_.find(session.id());
+            if (char_it == session_characters_.end()) {
+                DungeonResultResponse response;
+                response.success = false;
+                response.code = "CHAR_NOT_SET";
+                response.message = "Character not registered for session";
+                response.summary = "result rejected";
+                auto encoded = encodeDungeonResultResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_result_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonResultRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            std::vector<reward::RewardItem> reward_items;
+            reward_items.reserve(request.rewards.size());
+            for (const auto &item : request.rewards) {
+                reward_items.push_back(reward::RewardItem{item.item_id, item.count});
+            }
+
+            reward::Inventory reward_inventory;
+            bool grant_ok = reward_service_.grantRewards(
+                reward_inventory, next_reward_grant_id_++, reward_items);
+            if (!grant_ok) {
+                DungeonResultResponse response;
+                response.success = false;
+                response.code = "REWARD_FAILED";
+                response.message = "Reward grant failed";
+                response.summary = "result rejected";
+                auto encoded = encodeDungeonResultResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_result_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonResultRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            bool inventory_ok = true;
+            for (const auto &item : request.rewards) {
+                if (!inventory_storage_.addItem(char_it->second,
+                                                item.item_id,
+                                                item.count,
+                                                "dungeon_reward")) {
+                    inventory_ok = false;
+                    break;
+                }
+            }
+            if (!inventory_ok) {
+                DungeonResultResponse response;
+                response.success = false;
+                response.code = "INVENTORY_FAILED";
+                response.message = "Failed to update inventory";
+                response.summary = "result rejected";
+                auto encoded = encodeDungeonResultResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_result_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonResultRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            DungeonResultResponse response;
+            response.success = true;
+            response.code = "OK";
+            response.message = "Dungeon result recorded";
+            response.summary = "result recorded";
+            auto encoded = encodeDungeonResultResponse(response);
+            admin::LogFields fields = received_fields;
+            fields.user_id = user->user_id;
+            fields.reason = response.message;
+            logger_.log("info", "dungeon_result_recorded", response.message, fields);
+            return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonResultRes),
+                                 header.version,
+                                 encoded);
+        }
+        case PacketType::InventoryUpdateNotify: {
+            InventoryUpdateNotify request;
+            if (!decodeInventoryUpdateNotify(payload, request)) {
+                InventoryUpdateResponse response;
+                response.success = false;
+                response.code = "MALFORMED";
+                response.message = "Malformed inventory update payload";
+                auto encoded = encodeInventoryUpdateResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = response.message;
+                logger_.log("warn", "inventory_update_failed", response.message, fields);
+                return Codec::encode(
+                    static_cast<std::uint16_t>(PacketType::InventoryUpdateRes),
+                    header.version,
+                    encoded);
+            }
+
+            const auto *user = session.userContext().has_value()
+                                   ? &session.userContext().value()
+                                   : nullptr;
+            if (!user) {
+                InventoryUpdateResponse response;
+                response.success = false;
+                response.code = "UNAUTHENTICATED";
+                response.message = "Authentication required";
+                auto encoded = encodeInventoryUpdateResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = response.message;
+                logger_.log("warn", "inventory_update_failed", response.message, fields);
+                return Codec::encode(
+                    static_cast<std::uint16_t>(PacketType::InventoryUpdateRes),
+                    header.version,
+                    encoded);
+            }
+
+            bool inventory_ok = true;
+            for (const auto &item : request.items) {
+                if (!inventory_storage_.addItem(request.char_id,
+                                                item.item_id,
+                                                item.count,
+                                                "inventory_update")) {
+                    inventory_ok = false;
+                    break;
+                }
+            }
+
+            InventoryUpdateResponse response;
+            response.success = inventory_ok;
+            response.code = inventory_ok ? "OK" : "INVENTORY_FAILED";
+            response.message =
+                inventory_ok ? "Inventory updated" : "Failed to update inventory";
+            response.inventory_version =
+                inventory_storage_.changeLog(request.char_id).size();
+            auto encoded = encodeInventoryUpdateResponse(response);
+            admin::LogFields fields = received_fields;
+            fields.user_id = user->user_id;
+            fields.reason = response.message;
+            logger_.log(response.success ? "info" : "warn",
+                        response.success ? "inventory_updated"
+                                         : "inventory_update_failed",
+                        response.message,
+                        fields);
+            return Codec::encode(
+                static_cast<std::uint16_t>(PacketType::InventoryUpdateRes),
+                header.version,
+                encoded);
         }
         case PacketType::GuildCreateReq: {
             GuildCreateRequest request;
