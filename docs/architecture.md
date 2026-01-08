@@ -67,15 +67,17 @@ sequenceDiagram
     C->>G: MatchReq
     G->>P: MatchReq
     P-->>G: MatchFound (instance_id)
-    G-->>C: DungeonEnterRes (endpoint)
+    G-->>C: MatchFoundNotify (endpoint/ticket)
     C->>D: DungeonEnterReq
-    D-->>C: DungeonEnterAck
+    D-->>C: DungeonEnterRes (READY)
 
     Note over D: PLAYING
 
-    D->>I: MatchResult + Rewards
-    I-->>D: InventoryUpdateAck
-    D-->>C: DungeonClearRes
+    C->>D: DungeonResultNotify
+    D-->>C: DungeonResultRes
+    D->>I: RewardGrantNotify
+    I-->>D: RewardGrantRes
+    I-->>C: InventoryUpdateNotify
 ```
 
 ## 3. 상태 머신 정의
@@ -90,7 +92,7 @@ sequenceDiagram
 - `WAITING -> READY`: 파티 인원 충족 + 입장 승인
 - `READY -> PLAYING`: 준비 완료 시그널 수신
 - `PLAYING -> CLEAR/FAIL`: 던전 목표 달성 또는 실패 조건
-- `CLEAR/FAIL -> TERMINATE`: 보상/정산 완료
+- `CLEAR/FAIL -> TERMINATE`: 보상 지급 및 인벤토리 반영 완료
 
 ## 4. 주요 데이터 모델
 - **users**: `id`, `account`, `last_login`, `status`
@@ -106,11 +108,12 @@ sequenceDiagram
 ## 5. 프로토콜 요약
 - **LoginReq/LoginRes**: 토큰 발급 및 세션 생성
 - **PartyCreateReq/PartyInviteReq/PartyJoinRes**: 파티 생성 및 초대
-- **MatchReq/MatchFoundRes**: 매칭 요청 및 인스턴스 할당
+- **MatchReq/MatchFoundNotify**: 매칭 요청 및 인스턴스 할당/입장 티켓 수신
 - **DungeonEnterReq/DungeonEnterRes**: 던전 입장 요청/응답
 - **DungeonEvent**: 스킬/데미지/이벤트 전송
-- **DungeonClearRes/DungeonFailRes**: 종료 결과 통보
-- **InventoryUpdateNotify**: 보상/아이템 반영
+- **DungeonResultNotify/DungeonResultRes**: 클리어/실패 결과 통보
+- **RewardGrantNotify/RewardGrantRes**: 보상 지급 처리(서버 내부)
+- **InventoryUpdateNotify/InventoryUpdateRes**: 보상/아이템 반영
 - **AdminKickReq/AdminRoomCloseReq**: 운영툴 API
 
 > 상세 스펙은 `docs/protocol.md`를 참고한다.

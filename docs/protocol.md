@@ -126,6 +126,9 @@
 ```json
 // MatchFoundNotify
 {
+  "success": true,
+  "code": "OK",
+  "message": "",
   "party_id": "party-uuid",
   "instance_id": "instance-uuid",
   "endpoint": "dungeon.example.com:7777",
@@ -171,21 +174,55 @@
 }
 ```
 
-### 6.3 DungeonResultNotify
+### 6.3 DungeonResultNotify/DungeonResultRes
 ```json
+// DungeonResultNotify
 {
   "result": "CLEAR",
   "stats": { "time_sec": 320, "deaths": 1 },
   "rewards": [ { "item_id": 3001, "count": 2 } ]
 }
 ```
+```json
+// DungeonResultRes
+{
+  "result": { "ok": true, "code": "OK", "message": "" },
+  "data": { "summary": "result recorded" }
+}
+```
 
 ## 7. 보상/인벤토리 프로토콜
-### 7.1 InventoryUpdateNotify
+### 7.1 RewardGrantNotify/RewardGrantRes (server-internal, demo placeholder)
+- 던전 서버가 아이템/인벤토리 레이어에 보상을 요청하는 내부 메시지
+- E2E 데모에서는 플레이스홀더로 로그에만 기록된다.
 ```json
+// RewardGrantNotify
 {
   "char_id": 1001,
   "items": [ { "item_id": 3001, "count": 2 } ]
+}
+```
+```json
+// RewardGrantRes
+{
+  "result": { "ok": true, "code": "OK", "message": "" },
+  "data": { "grant_id": "grant-555" }
+}
+```
+
+### 7.2 InventoryUpdateNotify/InventoryUpdateRes
+```json
+// InventoryUpdateNotify
+{
+  "char_id": 1001,
+  "items": [ { "item_id": 3001, "count": 2 } ]
+}
+```
+```json
+// InventoryUpdateRes
+{
+  "result": { "ok": true, "code": "OK", "message": "" },
+  "data": { "inventory_version": 42 }
 }
 ```
 
