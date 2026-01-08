@@ -1,10 +1,52 @@
 #include "net/server.h"
 
+#include <chrono>
 #include <optional>
 #include <sstream>
 #include <vector>
 
 namespace net {
+
+Server::Server() {
+    guild_service_.setEventSink([this](SessionId session_id,
+                                       const guild::GuildEvent &event) {
+        auto session = findSession(session_id);
+        if (!session) {
+            return;
+        }
+        GuildEvent payload;
+        payload.type = static_cast<GuildEventType>(event.type);
+        payload.guild_id = event.guild_id;
+        payload.actor_user_id = event.actor_user_id;
+        payload.member_user_ids = event.member_user_ids;
+        payload.message = event.message;
+        auto encoded = encodeGuildEvent(payload);
+        auto frame = Codec::encode(static_cast<std::uint16_t>(PacketType::GuildEvent),
+                                   session->protocolVersion(),
+                                   encoded);
+        session->enqueueSend(std::move(frame), std::chrono::steady_clock::now());
+    });
+
+    chat_service_.setEventSink([this](SessionId session_id,
+                                      const chat::ChatMessage &message) {
+        auto session = findSession(session_id);
+        if (!session) {
+            return;
+        }
+        ChatEvent payload;
+        payload.channel = message.channel == chat::ChatChannel::Party
+                              ? ChatChannel::Party
+                              : ChatChannel::Global;
+        payload.party_id = message.party_id;
+        payload.sender_user_id = message.sender_user_id;
+        payload.message = message.text;
+        auto encoded = encodeChatEvent(payload);
+        auto frame = Codec::encode(static_cast<std::uint16_t>(PacketType::ChatEvent),
+                                   session->protocolVersion(),
+                                   encoded);
+        session->enqueueSend(std::move(frame), std::chrono::steady_clock::now());
+    });
+}
 
 bool Server::SessionRegistry::registerSession(SessionId id, SessionRecord record) {
     auto existing = active_users_.find(record.user_id);
@@ -61,6 +103,8 @@ void Server::removeSession(SessionId id) {
         sessions_.erase(it);
     }
     registry_.removeSession(id);
+    party_service_.removeMember(id);
+    guild_service_.removeMember(id);
 }
 
 std::shared_ptr<Session> Server::findSession(SessionId id) const {
@@ -93,6 +137,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
     const std::vector<std::uint8_t> &payload,
     std::chrono::steady_clock::time_point now) {
     session.onReceive(now);
+    session.setProtocolVersion(header.version);
 
     if (header.version < kMinProtocolVersion || header.version > kMaxProtocolVersion) {
         VersionReject reject;
@@ -190,6 +235,233 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
                                  header.version,
                                  encoded);
         }
+        case PacketType::GuildCreateReq: {
+            GuildCreateRequest request;
+            if (!decodeGuildCreateRequest(payload, request)) {
+                GuildCreateResponse response;
+                response.success = false;
+                response.message = "Malformed guild create payload";
+                auto encoded = encodeGuildCreateResponse(response);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::GuildCreateRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            const auto *user = session.userContext().has_value()
+                                   ? &session.userContext().value()
+                                   : nullptr;
+            if (!user) {
+                GuildCreateResponse response;
+                response.success = false;
+                response.message = "Authentication required";
+                auto encoded = encodeGuildCreateResponse(response);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::GuildCreateRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            auto guild_id = guild_service_.createGuild(session.id(),
+                                                       user->user_id,
+                                                       request.guild_name);
+            GuildCreateResponse response;
+            if (!guild_id) {
+                response.success = false;
+                response.message = "Unable to create guild";
+            } else {
+                response.success = true;
+                response.guild_id = *guild_id;
+                response.message = "Guild created";
+            }
+            auto encoded = encodeGuildCreateResponse(response);
+            return Codec::encode(static_cast<std::uint16_t>(PacketType::GuildCreateRes),
+                                 header.version,
+                                 encoded);
+        }
+        case PacketType::GuildJoinReq: {
+            GuildJoinRequest request;
+            if (!decodeGuildJoinRequest(payload, request)) {
+                GuildJoinResponse response;
+                response.success = false;
+                response.message = "Malformed guild join payload";
+                auto encoded = encodeGuildJoinResponse(response);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::GuildJoinRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            const auto *user = session.userContext().has_value()
+                                   ? &session.userContext().value()
+                                   : nullptr;
+            if (!user) {
+                GuildJoinResponse response;
+                response.success = false;
+                response.message = "Authentication required";
+                auto encoded = encodeGuildJoinResponse(response);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::GuildJoinRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            GuildJoinResponse response;
+            response.success = guild_service_.joinGuild(request.guild_id,
+                                                        session.id(),
+                                                        user->user_id);
+            response.message = response.success ? "Joined guild" : "Unable to join guild";
+            auto encoded = encodeGuildJoinResponse(response);
+            return Codec::encode(static_cast<std::uint16_t>(PacketType::GuildJoinRes),
+                                 header.version,
+                                 encoded);
+        }
+        case PacketType::GuildLeaveReq: {
+            GuildLeaveRequest request;
+            if (!decodeGuildLeaveRequest(payload, request)) {
+                GuildLeaveResponse response;
+                response.success = false;
+                response.message = "Malformed guild leave payload";
+                auto encoded = encodeGuildLeaveResponse(response);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::GuildLeaveRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            const auto *user = session.userContext().has_value()
+                                   ? &session.userContext().value()
+                                   : nullptr;
+            if (!user) {
+                GuildLeaveResponse response;
+                response.success = false;
+                response.message = "Authentication required";
+                auto encoded = encodeGuildLeaveResponse(response);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::GuildLeaveRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            auto guild_id = request.guild_id;
+            if (guild_id == 0) {
+                auto current = guild_service_.guildForMember(session.id());
+                if (!current) {
+                    GuildLeaveResponse response;
+                    response.success = false;
+                    response.message = "Not in a guild";
+                    auto encoded = encodeGuildLeaveResponse(response);
+                    return Codec::encode(static_cast<std::uint16_t>(PacketType::GuildLeaveRes),
+                                         header.version,
+                                         encoded);
+                }
+                guild_id = *current;
+            }
+
+            GuildLeaveResponse response;
+            response.success = guild_service_.leaveGuild(guild_id, session.id());
+            response.message = response.success ? "Left guild" : "Unable to leave guild";
+            auto encoded = encodeGuildLeaveResponse(response);
+            return Codec::encode(static_cast<std::uint16_t>(PacketType::GuildLeaveRes),
+                                 header.version,
+                                 encoded);
+        }
+        case PacketType::ChatSendReq: {
+            ChatSendRequest request;
+            if (!decodeChatSendRequest(payload, request)) {
+                ChatSendResponse response;
+                response.success = false;
+                response.message = "Malformed chat payload";
+                auto encoded = encodeChatSendResponse(response);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::ChatSendRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            const auto *user = session.userContext().has_value()
+                                   ? &session.userContext().value()
+                                   : nullptr;
+            if (!user) {
+                ChatSendResponse response;
+                response.success = false;
+                response.message = "Authentication required";
+                auto encoded = encodeChatSendResponse(response);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::ChatSendRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            if (request.message.empty()) {
+                ChatSendResponse response;
+                response.success = false;
+                response.message = "Chat message cannot be empty";
+                auto encoded = encodeChatSendResponse(response);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::ChatSendRes),
+                                     header.version,
+                                     encoded);
+            }
+
+            ChatSendResponse response;
+            std::vector<SessionId> recipients;
+            if (request.channel == ChatChannel::Global) {
+                recipients.reserve(sessions_.size());
+                for (const auto &entry : sessions_) {
+                    if (entry.second->userContext().has_value()) {
+                        recipients.push_back(entry.first);
+                    }
+                }
+                response.success = chat_service_.sendGlobal(session.id(),
+                                                            user->user_id,
+                                                            request.message,
+                                                            recipients);
+                response.message = response.success ? "Global chat delivered"
+                                                    : "Failed to deliver global chat";
+            } else if (request.channel == ChatChannel::Party) {
+                std::uint64_t party_id = request.party_id;
+                bool can_send = true;
+                if (party_id == 0) {
+                    auto current_party = party_service_.partyForMember(session.id());
+                    if (!current_party) {
+                        response.success = false;
+                        response.message = "Not in a party";
+                        can_send = false;
+                    } else {
+                        party_id = *current_party;
+                    }
+                }
+                if (can_send) {
+                    auto party_info = party_service_.getPartyInfo(party_id);
+                    if (!party_info) {
+                        response.success = false;
+                        response.message = "Party not found";
+                    } else {
+                        bool is_member = false;
+                        recipients.reserve(party_info->members.size());
+                        for (const auto &member : party_info->members) {
+                            if (member.session_id == session.id()) {
+                                is_member = true;
+                            }
+                            recipients.push_back(member.session_id);
+                        }
+                        if (!is_member) {
+                            response.success = false;
+                            response.message = "Not authorized for party chat";
+                        } else {
+                            response.success = chat_service_.sendParty(session.id(),
+                                                                      user->user_id,
+                                                                      party_id,
+                                                                      request.message,
+                                                                      recipients);
+                            response.message = response.success
+                                                   ? "Party chat delivered"
+                                                   : "Failed to deliver party chat";
+                        }
+                    }
+                }
+            } else {
+                response.success = false;
+                response.message = "Unknown chat channel";
+            }
+
+            auto encoded = encodeChatSendResponse(response);
+            return Codec::encode(static_cast<std::uint16_t>(PacketType::ChatSendRes),
+                                 header.version,
+                                 encoded);
+        }
         default:
             break;
     }
@@ -199,6 +471,10 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
 
 const Session::UserContext *Server::sessionUser(SessionId id) const {
     return registry_.find(id);
+}
+
+party::PartyService &Server::partyService() {
+    return party_service_;
 }
 
 }  // namespace net

@@ -23,7 +23,17 @@ enum class PacketType : std::uint16_t {
     PartyAcceptRes = 105,
     PartyDisbandReq = 106,
     PartyDisbandRes = 107,
-    PartyEvent = 108
+    PartyEvent = 108,
+    GuildCreateReq = 200,
+    GuildCreateRes = 201,
+    GuildJoinReq = 202,
+    GuildJoinRes = 203,
+    GuildLeaveReq = 204,
+    GuildLeaveRes = 205,
+    GuildEvent = 206,
+    ChatSendReq = 300,
+    ChatSendRes = 301,
+    ChatEvent = 302
 };
 
 struct LoginRequest {
@@ -48,6 +58,49 @@ struct LogoutRequest {};
 
 struct LogoutResponse {
     bool success{false};
+    std::string message;
+};
+
+enum class GuildEventType : std::uint16_t {
+    Created = 1,
+    Joined = 2,
+    Left = 3,
+    Disbanded = 4
+};
+
+struct GuildCreateRequest {
+    std::string guild_name;
+};
+
+struct GuildCreateResponse {
+    bool success{false};
+    std::uint64_t guild_id{0};
+    std::string message;
+};
+
+struct GuildJoinRequest {
+    std::uint64_t guild_id{0};
+};
+
+struct GuildJoinResponse {
+    bool success{false};
+    std::string message;
+};
+
+struct GuildLeaveRequest {
+    std::uint64_t guild_id{0};
+};
+
+struct GuildLeaveResponse {
+    bool success{false};
+    std::string message;
+};
+
+struct GuildEvent {
+    GuildEventType type{GuildEventType::Created};
+    std::uint64_t guild_id{0};
+    std::string actor_user_id;
+    std::vector<std::string> member_user_ids;
     std::string message;
 };
 
@@ -110,6 +163,29 @@ struct PartyEvent {
     std::string message;
 };
 
+enum class ChatChannel : std::uint16_t {
+    Global = 1,
+    Party = 2
+};
+
+struct ChatSendRequest {
+    ChatChannel channel{ChatChannel::Global};
+    std::uint64_t party_id{0};
+    std::string message;
+};
+
+struct ChatSendResponse {
+    bool success{false};
+    std::string message;
+};
+
+struct ChatEvent {
+    ChatChannel channel{ChatChannel::Global};
+    std::uint64_t party_id{0};
+    std::string sender_user_id;
+    std::string message;
+};
+
 std::vector<std::uint8_t> encodeLoginRequest(const LoginRequest &request);
 bool decodeLoginRequest(const std::vector<std::uint8_t> &payload, LoginRequest &out);
 
@@ -124,6 +200,33 @@ bool decodeLogoutRequest(const std::vector<std::uint8_t> &payload, LogoutRequest
 
 std::vector<std::uint8_t> encodeLogoutResponse(const LogoutResponse &response);
 bool decodeLogoutResponse(const std::vector<std::uint8_t> &payload, LogoutResponse &out);
+
+std::vector<std::uint8_t> encodeGuildCreateRequest(const GuildCreateRequest &request);
+bool decodeGuildCreateRequest(const std::vector<std::uint8_t> &payload,
+                              GuildCreateRequest &out);
+
+std::vector<std::uint8_t> encodeGuildCreateResponse(const GuildCreateResponse &response);
+bool decodeGuildCreateResponse(const std::vector<std::uint8_t> &payload,
+                               GuildCreateResponse &out);
+
+std::vector<std::uint8_t> encodeGuildJoinRequest(const GuildJoinRequest &request);
+bool decodeGuildJoinRequest(const std::vector<std::uint8_t> &payload,
+                            GuildJoinRequest &out);
+
+std::vector<std::uint8_t> encodeGuildJoinResponse(const GuildJoinResponse &response);
+bool decodeGuildJoinResponse(const std::vector<std::uint8_t> &payload,
+                             GuildJoinResponse &out);
+
+std::vector<std::uint8_t> encodeGuildLeaveRequest(const GuildLeaveRequest &request);
+bool decodeGuildLeaveRequest(const std::vector<std::uint8_t> &payload,
+                             GuildLeaveRequest &out);
+
+std::vector<std::uint8_t> encodeGuildLeaveResponse(const GuildLeaveResponse &response);
+bool decodeGuildLeaveResponse(const std::vector<std::uint8_t> &payload,
+                              GuildLeaveResponse &out);
+
+std::vector<std::uint8_t> encodeGuildEvent(const GuildEvent &event);
+bool decodeGuildEvent(const std::vector<std::uint8_t> &payload, GuildEvent &out);
 
 std::vector<std::uint8_t> encodePartyCreateRequest(const PartyCreateRequest &request);
 bool decodePartyCreateRequest(const std::vector<std::uint8_t> &payload,
@@ -159,5 +262,16 @@ bool decodePartyDisbandResponse(const std::vector<std::uint8_t> &payload,
 
 std::vector<std::uint8_t> encodePartyEvent(const PartyEvent &event);
 bool decodePartyEvent(const std::vector<std::uint8_t> &payload, PartyEvent &out);
+
+std::vector<std::uint8_t> encodeChatSendRequest(const ChatSendRequest &request);
+bool decodeChatSendRequest(const std::vector<std::uint8_t> &payload,
+                           ChatSendRequest &out);
+
+std::vector<std::uint8_t> encodeChatSendResponse(const ChatSendResponse &response);
+bool decodeChatSendResponse(const std::vector<std::uint8_t> &payload,
+                            ChatSendResponse &out);
+
+std::vector<std::uint8_t> encodeChatEvent(const ChatEvent &event);
+bool decodeChatEvent(const std::vector<std::uint8_t> &payload, ChatEvent &out);
 
 }  // namespace net

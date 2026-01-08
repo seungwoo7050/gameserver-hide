@@ -187,6 +187,147 @@ bool decodeLogoutResponse(const std::vector<std::uint8_t> &payload, LogoutRespon
     return offset == payload.size();
 }
 
+std::vector<std::uint8_t> encodeGuildCreateRequest(const GuildCreateRequest &request) {
+    std::vector<std::uint8_t> out;
+    write_string(request.guild_name, out);
+    return out;
+}
+
+bool decodeGuildCreateRequest(const std::vector<std::uint8_t> &payload,
+                              GuildCreateRequest &out) {
+    std::size_t offset = 0;
+    if (!read_string(payload, offset, out.guild_name)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeGuildCreateResponse(const GuildCreateResponse &response) {
+    std::vector<std::uint8_t> out;
+    out.push_back(static_cast<std::uint8_t>(response.success ? 1 : 0));
+    write_u64(response.guild_id, out);
+    write_string(response.message, out);
+    return out;
+}
+
+bool decodeGuildCreateResponse(const std::vector<std::uint8_t> &payload,
+                               GuildCreateResponse &out) {
+    if (payload.empty()) {
+        return false;
+    }
+    std::size_t offset = 0;
+    out.success = payload[offset++] != 0;
+    if (!read_u64(payload, offset, out.guild_id)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeGuildJoinRequest(const GuildJoinRequest &request) {
+    std::vector<std::uint8_t> out;
+    write_u64(request.guild_id, out);
+    return out;
+}
+
+bool decodeGuildJoinRequest(const std::vector<std::uint8_t> &payload,
+                            GuildJoinRequest &out) {
+    std::size_t offset = 0;
+    if (!read_u64(payload, offset, out.guild_id)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeGuildJoinResponse(const GuildJoinResponse &response) {
+    std::vector<std::uint8_t> out;
+    out.push_back(static_cast<std::uint8_t>(response.success ? 1 : 0));
+    write_string(response.message, out);
+    return out;
+}
+
+bool decodeGuildJoinResponse(const std::vector<std::uint8_t> &payload,
+                             GuildJoinResponse &out) {
+    if (payload.empty()) {
+        return false;
+    }
+    std::size_t offset = 0;
+    out.success = payload[offset++] != 0;
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeGuildLeaveRequest(const GuildLeaveRequest &request) {
+    std::vector<std::uint8_t> out;
+    write_u64(request.guild_id, out);
+    return out;
+}
+
+bool decodeGuildLeaveRequest(const std::vector<std::uint8_t> &payload,
+                             GuildLeaveRequest &out) {
+    std::size_t offset = 0;
+    if (!read_u64(payload, offset, out.guild_id)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeGuildLeaveResponse(const GuildLeaveResponse &response) {
+    std::vector<std::uint8_t> out;
+    out.push_back(static_cast<std::uint8_t>(response.success ? 1 : 0));
+    write_string(response.message, out);
+    return out;
+}
+
+bool decodeGuildLeaveResponse(const std::vector<std::uint8_t> &payload,
+                              GuildLeaveResponse &out) {
+    if (payload.empty()) {
+        return false;
+    }
+    std::size_t offset = 0;
+    out.success = payload[offset++] != 0;
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeGuildEvent(const GuildEvent &event) {
+    std::vector<std::uint8_t> out;
+    write_u16(static_cast<std::uint16_t>(event.type), out);
+    write_u64(event.guild_id, out);
+    write_string(event.actor_user_id, out);
+    write_string_list(event.member_user_ids, out);
+    write_string(event.message, out);
+    return out;
+}
+
+bool decodeGuildEvent(const std::vector<std::uint8_t> &payload, GuildEvent &out) {
+    std::size_t offset = 0;
+    std::uint16_t type = 0;
+    if (!read_u16(payload, offset, type)) {
+        return false;
+    }
+    out.type = static_cast<GuildEventType>(type);
+    if (!read_u64(payload, offset, out.guild_id)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.actor_user_id)) {
+        return false;
+    }
+    if (!read_string_list(payload, offset, out.member_user_ids)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
 std::vector<std::uint8_t> encodePartyCreateRequest(const PartyCreateRequest &request) {
     std::vector<std::uint8_t> out;
     write_string(request.leader_user_id, out);
@@ -375,6 +516,79 @@ bool decodePartyEvent(const std::vector<std::uint8_t> &payload, PartyEvent &out)
         return false;
     }
     if (!read_string_list(payload, offset, out.member_user_ids)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeChatSendRequest(const ChatSendRequest &request) {
+    std::vector<std::uint8_t> out;
+    write_u16(static_cast<std::uint16_t>(request.channel), out);
+    write_u64(request.party_id, out);
+    write_string(request.message, out);
+    return out;
+}
+
+bool decodeChatSendRequest(const std::vector<std::uint8_t> &payload,
+                           ChatSendRequest &out) {
+    std::size_t offset = 0;
+    std::uint16_t channel = 0;
+    if (!read_u16(payload, offset, channel)) {
+        return false;
+    }
+    out.channel = static_cast<ChatChannel>(channel);
+    if (!read_u64(payload, offset, out.party_id)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeChatSendResponse(const ChatSendResponse &response) {
+    std::vector<std::uint8_t> out;
+    out.push_back(static_cast<std::uint8_t>(response.success ? 1 : 0));
+    write_string(response.message, out);
+    return out;
+}
+
+bool decodeChatSendResponse(const std::vector<std::uint8_t> &payload,
+                            ChatSendResponse &out) {
+    if (payload.empty()) {
+        return false;
+    }
+    std::size_t offset = 0;
+    out.success = payload[offset++] != 0;
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeChatEvent(const ChatEvent &event) {
+    std::vector<std::uint8_t> out;
+    write_u16(static_cast<std::uint16_t>(event.channel), out);
+    write_u64(event.party_id, out);
+    write_string(event.sender_user_id, out);
+    write_string(event.message, out);
+    return out;
+}
+
+bool decodeChatEvent(const std::vector<std::uint8_t> &payload, ChatEvent &out) {
+    std::size_t offset = 0;
+    std::uint16_t channel = 0;
+    if (!read_u16(payload, offset, channel)) {
+        return false;
+    }
+    out.channel = static_cast<ChatChannel>(channel);
+    if (!read_u64(payload, offset, out.party_id)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.sender_user_id)) {
         return false;
     }
     if (!read_string(payload, offset, out.message)) {

@@ -114,6 +114,24 @@ const std::optional<Session::UserContext> &Session::userContext() const {
     return user_context_;
 }
 
+void Session::setProtocolVersion(std::uint16_t version) {
+    protocol_version_ = version;
+}
+
+std::uint16_t Session::protocolVersion() const {
+    return protocol_version_;
+}
+
+bool Session::dequeueSend(std::vector<std::uint8_t> &payload) {
+    if (send_queue_.empty()) {
+        return false;
+    }
+    payload = std::move(send_queue_.front());
+    send_queue_bytes_ -= payload.size();
+    send_queue_.pop_front();
+    return true;
+}
+
 void Session::disconnect(const char *reason) {
     if (!connected_) {
         return;

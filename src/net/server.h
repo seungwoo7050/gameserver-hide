@@ -1,9 +1,12 @@
 #pragma once
 
+#include "chat/chat.h"
+#include "guild/guild.h"
 #include "net/auth.h"
 #include "net/codec.h"
 #include "net/protocol.h"
 #include "net/session.h"
+#include "party/party.h"
 
 #include <chrono>
 #include <memory>
@@ -16,6 +19,8 @@ namespace net {
 class Server {
 public:
     using SessionId = Session::SessionId;
+
+    Server();
 
     std::shared_ptr<Session> createSession(
         const SessionConfig &config,
@@ -33,6 +38,7 @@ public:
         std::chrono::steady_clock::time_point now);
 
     const Session::UserContext *sessionUser(SessionId id) const;
+    party::PartyService &partyService();
 
 private:
     using SessionRecord = Session::UserContext;
@@ -53,6 +59,9 @@ private:
     std::unordered_map<SessionId, std::shared_ptr<Session>> sessions_;
     SessionRegistry registry_;
     TokenService token_service_;
+    party::PartyService party_service_;
+    guild::GuildService guild_service_;
+    chat::ChatService chat_service_;
 };
 
 }  // namespace net
