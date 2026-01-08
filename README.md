@@ -23,6 +23,19 @@ Run the minimal scripted demo client and review the generated logs/docs.
 - Sample log: `docs/e2e/phase10_log.txt`
 - Scenario doc: `docs/e2e/phase10_scenario.md`
 
+## Demo Procedure
+Use the scripted E2E client to walk through the match → dungeon → reward flow and review
+the artifacts it produces.
+1. Run the demo script (optionally pass a log file path).
+   ```bash
+   ./scripts/e2e_demo.sh docs/e2e/phase10_log.txt
+   ```
+2. Inspect the generated log artifacts in `docs/e2e/phase10_log.txt`.
+3. Cross-check the request/response ordering in `docs/e2e/phase10_scenario.md`.
+4. Compare the flow against the updated protocol and state machine docs:
+   - [Protocol spec](docs/protocol.md)
+   - [Architecture/state machine](docs/architecture.md)
+
 ## Load Simulation
 Build the load simulation target and run it to generate match/overflow logs and a summary.
 ```bash
