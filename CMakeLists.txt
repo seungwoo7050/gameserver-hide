@@ -10,6 +10,7 @@ include(CTest)
 
 add_executable(dungeonhub
     src/main.cpp
+    src/combat/dispatcher.cpp
     src/dungeon/instance_manager.cpp
     src/match/match_queue.cpp
     src/net/auth.cpp
@@ -18,6 +19,9 @@ add_executable(dungeonhub
     src/net/server.cpp
     src/net/session.cpp
     src/party/party.cpp
+    src/reward/drop_table.cpp
+    src/reward/inventory.cpp
+    src/reward/reward_service.cpp
 )
 
 target_include_directories(dungeonhub
@@ -29,6 +33,7 @@ target_include_directories(dungeonhub
 if(BUILD_TESTING)
     add_executable(dungeonhub_tests
         tests/net_tests.cpp
+        src/combat/dispatcher.cpp
         src/dungeon/instance_manager.cpp
         src/match/match_queue.cpp
         src/net/auth.cpp
@@ -37,17 +42,35 @@ if(BUILD_TESTING)
         src/net/server.cpp
         src/net/session.cpp
         src/party/party.cpp
+        src/reward/drop_table.cpp
+        src/reward/inventory.cpp
+        src/reward/reward_service.cpp
     )
     add_executable(dungeonhub_party_tests
         tests/party_match_tests.cpp
+        src/combat/dispatcher.cpp
         src/dungeon/instance_manager.cpp
         src/match/match_queue.cpp
         src/party/party.cpp
+        src/reward/drop_table.cpp
+        src/reward/inventory.cpp
+        src/reward/reward_service.cpp
     )
     add_executable(dungeonhub_dungeon_tests
         tests/dungeon_instance_tests.cpp
+        src/combat/dispatcher.cpp
         src/dungeon/instance_manager.cpp
         src/party/party.cpp
+        src/reward/drop_table.cpp
+        src/reward/inventory.cpp
+        src/reward/reward_service.cpp
+    )
+    add_executable(dungeonhub_combat_reward_tests
+        tests/combat_reward_tests.cpp
+        src/combat/dispatcher.cpp
+        src/reward/drop_table.cpp
+        src/reward/inventory.cpp
+        src/reward/reward_service.cpp
     )
     target_include_directories(dungeonhub_tests
         PRIVATE
@@ -64,8 +87,14 @@ if(BUILD_TESTING)
             ${PROJECT_SOURCE_DIR}/include
             ${PROJECT_SOURCE_DIR}/src
     )
+    target_include_directories(dungeonhub_combat_reward_tests
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/include
+            ${PROJECT_SOURCE_DIR}/src
+    )
     add_test(NAME dungeonhub_unit_tests COMMAND dungeonhub_tests)
     add_test(NAME dungeonhub_party_tests COMMAND dungeonhub_party_tests)
     add_test(NAME dungeonhub_dungeon_tests COMMAND dungeonhub_dungeon_tests)
+    add_test(NAME dungeonhub_combat_reward_tests COMMAND dungeonhub_combat_reward_tests)
     add_test(NAME dungeonhub_runs COMMAND dungeonhub)
 endif()
