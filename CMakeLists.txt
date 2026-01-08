@@ -97,6 +97,12 @@ if(BUILD_TESTING)
         src/chat/chat.cpp
         src/guild/guild.cpp
     )
+    add_executable(dungeonhub_reward_inventory_tests
+        tests/reward_inventory_integration_tests.cpp
+        src/reward/drop_table.cpp
+        src/reward/inventory.cpp
+        src/reward/reward_service.cpp
+    )
     add_executable(dungeonhub_guild_chat_tests
         src/admin/logging.cpp
         tests/guild_chat_tests.cpp
@@ -140,6 +146,11 @@ if(BUILD_TESTING)
             ${PROJECT_SOURCE_DIR}/include
             ${PROJECT_SOURCE_DIR}/src
     )
+    target_include_directories(dungeonhub_reward_inventory_tests
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/include
+            ${PROJECT_SOURCE_DIR}/src
+    )
     target_include_directories(dungeonhub_guild_chat_tests
         PRIVATE
             ${PROJECT_SOURCE_DIR}/include
@@ -150,6 +161,7 @@ if(BUILD_TESTING)
     add_test(NAME dungeonhub_dungeon_tests COMMAND dungeonhub_dungeon_tests)
     add_test(NAME dungeonhub_combat_reward_tests COMMAND dungeonhub_combat_reward_tests)
     add_test(NAME dungeonhub_inventory_tests COMMAND dungeonhub_inventory_tests)
+    add_test(NAME dungeonhub_reward_inventory_tests COMMAND dungeonhub_reward_inventory_tests)
     add_test(NAME dungeonhub_guild_chat_tests COMMAND dungeonhub_guild_chat_tests)
     add_test(NAME dungeonhub_runs COMMAND dungeonhub)
 endif()
