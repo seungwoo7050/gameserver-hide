@@ -177,6 +177,46 @@ bool PartyService::disbandParty(PartyId party_id, SessionId requester_session_id
     return true;
 }
 
+bool PartyService::removeMember(SessionId member_session_id) {
+    auto member_it = member_index_.find(member_session_id);
+    if (member_it == member_index_.end()) {
+        return false;
+    }
+
+    PartyId party_id = member_it->second;
+    auto party_it = parties_.find(party_id);
+    if (party_it == parties_.end()) {
+        member_index_.erase(member_it);
+        return false;
+    }
+
+    auto &party = party_it->second;
+    if (party.leader_session_id == member_session_id) {
+        PartyEvent event;
+        event.type = PartyEventType::Disbanded;
+        event.party_id = party_id;
+        event.actor_session_id = member_session_id;
+        event.message = "Party disbanded";
+        event.member_session_ids.reserve(party.members.size());
+        for (const auto &member : party.members) {
+            event.member_session_ids.push_back(member.first);
+            member_index_.erase(member.first);
+        }
+        emitToParty(party, event);
+        parties_.erase(party_it);
+        invites_.erase(party_id);
+        return true;
+    }
+
+    party.members.erase(member_session_id);
+    member_index_.erase(member_it);
+    auto invite_it = invites_.find(party_id);
+    if (invite_it != invites_.end()) {
+        invite_it->second.erase(member_session_id);
+    }
+    return true;
+}
+
 std::size_t PartyService::expireInvites(std::chrono::steady_clock::time_point now) {
     std::size_t expired_count = 0;
     for (auto &party_entry : parties_) {

@@ -61,6 +61,9 @@ public:
     void attachUserContext(UserContext context);
     void clearUserContext();
     const std::optional<UserContext> &userContext() const;
+    void setProtocolVersion(std::uint16_t version);
+    std::uint16_t protocolVersion() const;
+    bool dequeueSend(std::vector<std::uint8_t> &payload);
 
 private:
     void disconnect(const char *reason);
@@ -75,6 +78,7 @@ private:
     std::deque<std::vector<std::uint8_t>> send_queue_;
     std::size_t send_queue_bytes_{0};
     std::optional<UserContext> user_context_;
+    std::uint16_t protocol_version_{0};
 };
 
 }  // namespace net
