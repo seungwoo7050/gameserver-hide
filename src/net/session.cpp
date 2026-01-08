@@ -1,9 +1,18 @@
 #include "net/session.h"
 
+#include "admin/logging.h"
+
 #include <algorithm>
-#include <iostream>
 
 namespace net {
+namespace {
+
+admin::StructuredLogger &sessionLogger() {
+    static admin::StructuredLogger logger;
+    return logger;
+}
+
+}  // namespace
 
 bool TokenBucket::consume(double amount, std::chrono::steady_clock::time_point now) {
     auto elapsed = std::chrono::duration<double>(now - last_refill).count();
@@ -26,7 +35,8 @@ Session::Session(SessionId id, const SessionConfig &config,
               now},
       last_activity_(now),
       last_receive_(now),
-      last_heartbeat_(now) {}
+      last_heartbeat_(now),
+      trace_id_(admin::StructuredLogger::generateTraceId()) {}
 
 Session::SessionId Session::id() const {
     return id_;
@@ -48,8 +58,12 @@ bool Session::enqueueSend(std::vector<std::uint8_t> payload,
     }
 
     if (!bucket_.consume(static_cast<double>(payload.size()), now)) {
-        std::cerr << "Session " << id_ << " rate limited: " << payload.size()
-                  << " bytes" << std::endl;
+        admin::LogFields fields;
+        fields.session_id = id_;
+        fields.session_trace_id = trace_id_;
+        fields.bytes = payload.size();
+        sessionLogger().log("warn", "session_rate_limited",
+                            "Session rate limited", fields);
         return false;
     }
 
@@ -66,8 +80,12 @@ bool Session::enqueueSend(std::vector<std::uint8_t> payload,
                 send_queue_.pop_front();
             }
         } else {
-            std::cerr << "Session " << id_ << " send queue overflow, dropping packet"
-                      << std::endl;
+            admin::LogFields fields;
+            fields.session_id = id_;
+            fields.session_trace_id = trace_id_;
+            fields.bytes = payload.size();
+            sessionLogger().log("warn", "session_queue_overflow",
+                                "Session send queue overflow", fields);
             return false;
         }
     }
@@ -114,6 +132,10 @@ const std::optional<Session::UserContext> &Session::userContext() const {
     return user_context_;
 }
 
+const std::string &Session::traceId() const {
+    return trace_id_;
+}
+
 void Session::setProtocolVersion(std::uint16_t version) {
     protocol_version_ = version;
 }
@@ -137,7 +159,12 @@ void Session::disconnect(const char *reason) {
         return;
     }
     connected_ = false;
-    std::cerr << "Session " << id_ << " disconnected: " << reason << std::endl;
+    admin::LogFields fields;
+    fields.session_id = id_;
+    fields.session_trace_id = trace_id_;
+    fields.reason = reason;
+    sessionLogger().log("info", "session_disconnected", "Session disconnected",
+                        fields);
 }
 
 }  // namespace net

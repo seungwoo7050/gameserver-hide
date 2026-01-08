@@ -1,5 +1,6 @@
 #pragma once
 
+#include "admin/logging.h"
 #include "chat/chat.h"
 #include "guild/guild.h"
 #include "net/auth.h"
@@ -20,6 +21,12 @@ class Server {
 public:
     using SessionId = Session::SessionId;
 
+    struct Metrics {
+        std::uint64_t packets_total{0};
+        std::uint64_t bytes_total{0};
+        std::uint64_t error_total{0};
+    };
+
     Server();
 
     std::shared_ptr<Session> createSession(
@@ -30,6 +37,8 @@ public:
 
     void tick(std::chrono::steady_clock::time_point now);
     std::size_t sessionCount() const;
+    Metrics metrics() const;
+    std::chrono::steady_clock::time_point startTime() const;
 
     std::optional<std::vector<std::uint8_t>> handlePacket(
         Session &session,
@@ -39,6 +48,9 @@ public:
 
     const Session::UserContext *sessionUser(SessionId id) const;
     party::PartyService &partyService();
+    bool forceDisconnect(SessionId id,
+                         const std::string &reason,
+                         const std::string &request_trace_id);
 
 private:
     using SessionRecord = Session::UserContext;
@@ -62,6 +74,9 @@ private:
     party::PartyService party_service_;
     guild::GuildService guild_service_;
     chat::ChatService chat_service_;
+    Metrics metrics_{};
+    std::chrono::steady_clock::time_point started_at_;
+    admin::StructuredLogger logger_{};
 };
 
 }  // namespace net

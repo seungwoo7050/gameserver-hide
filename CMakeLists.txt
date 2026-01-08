@@ -9,6 +9,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include(CTest)
 
 add_executable(dungeonhub
+    src/admin/admin.cpp
+    src/admin/logging.cpp
     src/chat/chat.cpp
     src/main.cpp
     src/combat/dispatcher.cpp
@@ -35,6 +37,8 @@ target_include_directories(dungeonhub
 
 if(BUILD_TESTING)
     add_executable(dungeonhub_tests
+        src/admin/admin.cpp
+        src/admin/logging.cpp
         tests/net_tests.cpp
         src/chat/chat.cpp
         src/combat/dispatcher.cpp
@@ -94,6 +98,7 @@ if(BUILD_TESTING)
         src/guild/guild.cpp
     )
     add_executable(dungeonhub_guild_chat_tests
+        src/admin/logging.cpp
         tests/guild_chat_tests.cpp
         src/chat/chat.cpp
         src/guild/guild.cpp

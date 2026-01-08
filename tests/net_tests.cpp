@@ -1,3 +1,5 @@
+#include "admin/admin.h"
+#include "admin/logging.h"
 #include "net/auth.h"
 #include "net/codec.h"
 #include "net/protocol.h"
@@ -8,6 +10,7 @@
 #include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -42,6 +45,34 @@ void assert_payload_type(const std::vector<std::uint8_t> &frame,
     auto header = decode_header(frame, payload);
     assert(header.type == static_cast<std::uint16_t>(expected_type));
     assert(header.version == expected_version);
+}
+
+class CoutCapture {
+public:
+    CoutCapture() : old_(std::cout.rdbuf(buffer_.rdbuf())) {}
+    ~CoutCapture() {
+        std::cout.rdbuf(old_);
+    }
+
+    std::string str() const {
+        return buffer_.str();
+    }
+
+private:
+    std::ostringstream buffer_;
+    std::streambuf *old_;
+};
+
+bool is_hex_string(const std::string &value) {
+    if (value.size() != 32) {
+        return false;
+    }
+    for (char ch : value) {
+        if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) {
+            return false;
+        }
+    }
+    return true;
 }
 
 }  // namespace
@@ -279,6 +310,80 @@ int main() {
         net::VersionReject reject;
         assert(net::decodeVersionReject(response_payload, reject));
         assert(reject.client_version == net::kMaxProtocolVersion + 1);
+    }
+
+    {
+        admin::StructuredLogger logger;
+        admin::LogFields fields;
+        fields.request_trace_id = "req-1";
+        fields.session_trace_id = "sess-1";
+        fields.session_id = 42;
+        fields.reason = "testing";
+        CoutCapture capture;
+        logger.log("info", "test_event", "Testing logging", fields);
+        const auto output = capture.str();
+        assert(output.find("\"level\":\"info\"") != std::string::npos);
+        assert(output.find("\"event\":\"test_event\"") != std::string::npos);
+        assert(output.find("\"message\":\"Testing logging\"") != std::string::npos);
+        assert(output.find("\"request_trace_id\":\"req-1\"") != std::string::npos);
+        assert(output.find("\"session_trace_id\":\"sess-1\"") != std::string::npos);
+        assert(output.find("\"session_id\":42") != std::string::npos);
+        assert(output.find("\"reason\":\"testing\"") != std::string::npos);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        assert(is_hex_string(session->traceId()));
+        net::LoginRequest login{"user1", "letmein"};
+        auto payload = net::encodeLoginRequest(login);
+        net::FrameHeader header{static_cast<std::uint32_t>(payload.size()),
+                                static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                net::kMinProtocolVersion};
+        CoutCapture capture;
+        auto response = server.handlePacket(*session, header, payload, now);
+        assert(response.has_value());
+        const auto logs = capture.str();
+        assert(logs.find("\"event\":\"packet_received\"") != std::string::npos);
+        assert(logs.find("\"request_trace_id\":\"") != std::string::npos);
+        assert(logs.find("\"session_trace_id\":\"" + session->traceId() + "\"") !=
+               std::string::npos);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "badpw"};
+        auto payload = net::encodeLoginRequest(login);
+        net::FrameHeader header{static_cast<std::uint32_t>(payload.size()),
+                                static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                net::kMinProtocolVersion};
+        auto response = server.handlePacket(*session, header, payload, now);
+        assert(response.has_value());
+        auto metrics = server.metrics();
+        assert(metrics.packets_total == 1);
+        assert(metrics.bytes_total == payload.size());
+        assert(metrics.error_total == 1);
+        assert(server.sessionCount() == 1);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        admin::AdminService admin_service(server);
+        auto status = admin_service.getStatus();
+        assert(status.active_sessions == 1);
+        assert(status.packets_total == 0);
+        assert(status.error_total == 0);
+        assert(admin_service.forceTerminateSession(session->id(), "maintenance"));
+        assert(server.sessionCount() == 0);
+        assert(!admin_service.forceTerminateSession(999, "missing"));
     }
 
     std::cout << "All tests passed.\n";
