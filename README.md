@@ -14,6 +14,15 @@ cmake --build build
 ./build/dungeonhub
 ```
 
+## E2E Demo
+Run the minimal scripted demo client and review the generated logs/docs.
+```bash
+./scripts/e2e_demo.sh
+```
+- Demo script: `scripts/e2e_demo.sh`
+- Sample log: `docs/e2e/phase10_log.txt`
+- Scenario doc: `docs/e2e/phase10_scenario.md`
+
 ## Development Flow
 1. 설계 문서 확인: `docs/architecture.md`, `docs/protocol.md`
 2. 모듈 경계 확인: `src/net`, `src/match`, `src/dungeon`, `src/party` 등
