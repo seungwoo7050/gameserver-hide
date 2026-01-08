@@ -18,7 +18,44 @@
 - **Admin/GM API**
   - 강제 접속 종료, 던전 종료, 모니터링
 
-## 2. 핵심 흐름(던전 입장/종료) 시퀀스 다이어그램
+## 2. 세션/매칭/던전 흐름 다이어그램
+
+### 2.1 세션 라이프사이클
+```mermaid
+flowchart LR
+    Client -->|LoginReq| Gateway
+    Gateway -->|LoginRes(token)| Client
+    Client -->|Heartbeat| Gateway
+    Gateway -->|HeartbeatAck| Client
+    Client -->|Disconnect| Gateway
+    Client -->|SessionReconnectReq| Gateway
+    Gateway -->|SessionReconnectRes| Client
+```
+
+### 2.2 매칭 플로우
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as Gateway
+    participant P as Party/Match
+
+    C->>G: PartyCreateReq
+    G->>P: PartyCreateReq
+    P-->>G: PartyCreateRes
+    G-->>C: PartyCreateRes
+
+    C->>G: MatchReq
+    G->>P: MatchReq
+    P-->>G: MatchFoundNotify
+    G-->>C: MatchFoundNotify (instance_id/endpoint)
+
+    C->>G: MatchCancelReq
+    G->>P: MatchCancelReq
+    P-->>G: MatchCancelRes
+    G-->>C: MatchCancelRes
+```
+
+### 2.3 던전 입장/종료 플로우
 ```mermaid
 sequenceDiagram
     participant C as Client
@@ -27,9 +64,7 @@ sequenceDiagram
     participant D as Dungeon Instance
     participant I as Item/Inventory
 
-    C->>G: LoginReq
-    G-->>C: LoginRes (token)
-    C->>G: PartyCreate/MatchReq
+    C->>G: MatchReq
     G->>P: MatchReq
     P-->>G: MatchFound (instance_id)
     G-->>C: DungeonEnterRes (endpoint)
@@ -77,3 +112,5 @@ sequenceDiagram
 - **DungeonClearRes/DungeonFailRes**: 종료 결과 통보
 - **InventoryUpdateNotify**: 보상/아이템 반영
 - **AdminKickReq/AdminRoomCloseReq**: 운영툴 API
+
+> 상세 스펙은 `docs/protocol.md`를 참고한다.
