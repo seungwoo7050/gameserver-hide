@@ -51,6 +51,7 @@ public:
                    std::string member_user_id);
     bool leaveGuild(GuildId guild_id, SessionId member_session_id);
     bool removeMember(SessionId member_session_id);
+    bool replaceMemberSession(SessionId old_session_id, SessionId new_session_id);
 
     std::optional<GuildInfo> getGuildInfo(GuildId guild_id) const;
     std::optional<GuildId> guildForMember(SessionId session_id) const;

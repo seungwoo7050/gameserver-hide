@@ -160,6 +160,41 @@ bool GuildService::removeMember(SessionId member_session_id) {
     return true;
 }
 
+bool GuildService::replaceMemberSession(SessionId old_session_id,
+                                        SessionId new_session_id) {
+    if (old_session_id == new_session_id) {
+        return true;
+    }
+    auto member_it = member_index_.find(old_session_id);
+    if (member_it == member_index_.end()) {
+        return false;
+    }
+    if (member_index_.count(new_session_id) > 0) {
+        return false;
+    }
+    GuildId guild_id = member_it->second;
+    auto guild_it = guilds_.find(guild_id);
+    if (guild_it == guilds_.end()) {
+        return false;
+    }
+    auto &guild = guild_it->second;
+    auto entry = guild.members.find(old_session_id);
+    if (entry == guild.members.end()) {
+        return false;
+    }
+
+    GuildMember member = entry->second;
+    member.session_id = new_session_id;
+    guild.members.erase(entry);
+    guild.members.emplace(new_session_id, member);
+    if (guild.leader_session_id == old_session_id) {
+        guild.leader_session_id = new_session_id;
+    }
+    member_index_.erase(member_it);
+    member_index_[new_session_id] = guild_id;
+    return true;
+}
+
 std::optional<GuildInfo> GuildService::getGuildInfo(GuildId guild_id) const {
     auto it = guilds_.find(guild_id);
     if (it == guilds_.end()) {

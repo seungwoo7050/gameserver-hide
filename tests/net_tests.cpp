@@ -213,6 +213,122 @@ int main() {
         net::Server server;
         net::SessionConfig config;
         auto now = steady_clock::now();
+        auto session1 = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto login_payload = net::encodeLoginRequest(login);
+        net::FrameHeader login_header{static_cast<std::uint32_t>(login_payload.size()),
+                                      static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                      net::kMinProtocolVersion};
+        auto login_response =
+            server.handlePacket(*session1, login_header, login_payload, now);
+        assert(login_response.has_value());
+        std::vector<std::uint8_t> login_payload_out;
+        assert_payload_type(*login_response, net::PacketType::LoginRes,
+                            net::kMinProtocolVersion, login_payload_out);
+        net::LoginResponse login_result;
+        assert(net::decodeLoginResponse(login_payload_out, login_result));
+        assert(login_result.accepted);
+
+        session1->setLastSeq(5);
+
+        auto session2 = server.createSession(config, now);
+        net::SessionReconnectRequest reconnect{login_result.token, 7};
+        auto reconnect_payload = net::encodeSessionReconnectRequest(reconnect);
+        net::FrameHeader reconnect_header{
+            static_cast<std::uint32_t>(reconnect_payload.size()),
+            static_cast<std::uint16_t>(net::PacketType::SessionReconnectReq),
+            net::kMinProtocolVersion};
+        auto reconnect_response =
+            server.handlePacket(*session2, reconnect_header, reconnect_payload, now);
+        assert(reconnect_response.has_value());
+        std::vector<std::uint8_t> reconnect_payload_out;
+        assert_payload_type(*reconnect_response, net::PacketType::SessionReconnectRes,
+                            net::kMinProtocolVersion, reconnect_payload_out);
+        net::SessionReconnectResponse reconnect_result;
+        assert(net::decodeSessionReconnectResponse(reconnect_payload_out,
+                                                   reconnect_result));
+        assert(reconnect_result.success);
+        assert(reconnect_result.session_id == session2->id());
+        assert(reconnect_result.resume_from_seq == 8);
+        assert(server.sessionUser(session2->id()) != nullptr);
+        assert(server.sessionUser(session1->id()) == nullptr);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::SessionReconnectRequest reconnect{"invalid-token", 0};
+        auto reconnect_payload = net::encodeSessionReconnectRequest(reconnect);
+        net::FrameHeader reconnect_header{
+            static_cast<std::uint32_t>(reconnect_payload.size()),
+            static_cast<std::uint16_t>(net::PacketType::SessionReconnectReq),
+            net::kMinProtocolVersion};
+        auto reconnect_response =
+            server.handlePacket(*session, reconnect_header, reconnect_payload, now);
+        assert(reconnect_response.has_value());
+        std::vector<std::uint8_t> reconnect_payload_out;
+        assert_payload_type(*reconnect_response, net::PacketType::SessionReconnectRes,
+                            net::kMinProtocolVersion, reconnect_payload_out);
+        net::SessionReconnectResponse reconnect_result;
+        assert(net::decodeSessionReconnectResponse(reconnect_payload_out,
+                                                   reconnect_result));
+        assert(!reconnect_result.success);
+        assert(reconnect_result.message == "Invalid or expired token");
+        assert(server.sessionUser(session->id()) == nullptr);
+        assert(session->lastSeq() == 0);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto login_payload = net::encodeLoginRequest(login);
+        net::FrameHeader login_header{static_cast<std::uint32_t>(login_payload.size()),
+                                      static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                      net::kMinProtocolVersion};
+        auto login_response =
+            server.handlePacket(*session, login_header, login_payload, now);
+        assert(login_response.has_value());
+        std::vector<std::uint8_t> login_payload_out;
+        assert_payload_type(*login_response, net::PacketType::LoginRes,
+                            net::kMinProtocolVersion, login_payload_out);
+        net::LoginResponse login_result;
+        assert(net::decodeLoginResponse(login_payload_out, login_result));
+        assert(login_result.accepted);
+
+        net::SessionReconnectRequest reconnect{login_result.token, 0};
+        auto reconnect_payload = net::encodeSessionReconnectRequest(reconnect);
+        net::FrameHeader reconnect_header{
+            static_cast<std::uint32_t>(reconnect_payload.size()),
+            static_cast<std::uint16_t>(net::PacketType::SessionReconnectReq),
+            net::kMinProtocolVersion};
+        auto reconnect_response = server.handlePacket(*session,
+                                                      reconnect_header,
+                                                      reconnect_payload,
+                                                      now + seconds{400});
+        assert(reconnect_response.has_value());
+        std::vector<std::uint8_t> reconnect_payload_out;
+        assert_payload_type(*reconnect_response, net::PacketType::SessionReconnectRes,
+                            net::kMinProtocolVersion, reconnect_payload_out);
+        net::SessionReconnectResponse reconnect_result;
+        assert(net::decodeSessionReconnectResponse(reconnect_payload_out,
+                                                   reconnect_result));
+        assert(!reconnect_result.success);
+        assert(reconnect_result.message == "Invalid or expired token");
+        const auto *user = server.sessionUser(session->id());
+        assert(user != nullptr);
+        assert(user->user_id == "user1");
+        assert(session->lastSeq() == 0);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
         auto session = server.createSession(config, now);
         net::LoginRequest login{"user1", "badpw"};
         auto login_payload = net::encodeLoginRequest(login);

@@ -240,6 +240,55 @@ bool decodeLogoutResponse(const std::vector<std::uint8_t> &payload, LogoutRespon
     return offset == payload.size();
 }
 
+std::vector<std::uint8_t> encodeSessionReconnectRequest(
+    const SessionReconnectRequest &request) {
+    std::vector<std::uint8_t> out;
+    write_string(request.token, out);
+    write_u32(request.last_seq, out);
+    return out;
+}
+
+bool decodeSessionReconnectRequest(const std::vector<std::uint8_t> &payload,
+                                   SessionReconnectRequest &out) {
+    std::size_t offset = 0;
+    if (!read_string(payload, offset, out.token)) {
+        return false;
+    }
+    if (!read_u32(payload, offset, out.last_seq)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeSessionReconnectResponse(
+    const SessionReconnectResponse &response) {
+    std::vector<std::uint8_t> out;
+    out.push_back(static_cast<std::uint8_t>(response.success ? 1 : 0));
+    write_string(response.message, out);
+    write_u64(response.session_id, out);
+    write_u32(response.resume_from_seq, out);
+    return out;
+}
+
+bool decodeSessionReconnectResponse(const std::vector<std::uint8_t> &payload,
+                                    SessionReconnectResponse &out) {
+    if (payload.empty()) {
+        return false;
+    }
+    std::size_t offset = 0;
+    out.success = payload[offset++] != 0;
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    if (!read_u64(payload, offset, out.session_id)) {
+        return false;
+    }
+    if (!read_u32(payload, offset, out.resume_from_seq)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
 std::vector<std::uint8_t> encodeGuildCreateRequest(const GuildCreateRequest &request) {
     std::vector<std::uint8_t> out;
     write_string(request.guild_name, out);
