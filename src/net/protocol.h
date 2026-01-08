@@ -15,6 +15,8 @@ enum class PacketType : std::uint16_t {
     VersionReject = 3,
     LogoutReq = 4,
     LogoutRes = 5,
+    SessionReconnectReq = 6,
+    SessionReconnectRes = 7,
     PartyCreateReq = 100,
     PartyCreateRes = 101,
     PartyInviteReq = 102,
@@ -67,6 +69,18 @@ struct LogoutRequest {};
 struct LogoutResponse {
     bool success{false};
     std::string message;
+};
+
+struct SessionReconnectRequest {
+    std::string token;
+    std::uint32_t last_seq{0};
+};
+
+struct SessionReconnectResponse {
+    bool success{false};
+    std::string message;
+    std::uint64_t session_id{0};
+    std::uint32_t resume_from_seq{0};
 };
 
 enum class GuildEventType : std::uint16_t {
@@ -283,6 +297,16 @@ bool decodeLogoutRequest(const std::vector<std::uint8_t> &payload, LogoutRequest
 
 std::vector<std::uint8_t> encodeLogoutResponse(const LogoutResponse &response);
 bool decodeLogoutResponse(const std::vector<std::uint8_t> &payload, LogoutResponse &out);
+
+std::vector<std::uint8_t> encodeSessionReconnectRequest(
+    const SessionReconnectRequest &request);
+bool decodeSessionReconnectRequest(const std::vector<std::uint8_t> &payload,
+                                   SessionReconnectRequest &out);
+
+std::vector<std::uint8_t> encodeSessionReconnectResponse(
+    const SessionReconnectResponse &response);
+bool decodeSessionReconnectResponse(const std::vector<std::uint8_t> &payload,
+                                    SessionReconnectResponse &out);
 
 std::vector<std::uint8_t> encodeGuildCreateRequest(const GuildCreateRequest &request);
 bool decodeGuildCreateRequest(const std::vector<std::uint8_t> &payload,

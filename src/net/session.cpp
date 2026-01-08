@@ -144,6 +144,14 @@ std::uint16_t Session::protocolVersion() const {
     return protocol_version_;
 }
 
+void Session::setLastSeq(std::uint64_t last_seq) {
+    last_seq_ = last_seq;
+}
+
+std::uint64_t Session::lastSeq() const {
+    return last_seq_;
+}
+
 bool Session::dequeueSend(std::vector<std::uint8_t> &payload) {
     if (send_queue_.empty()) {
         return false;

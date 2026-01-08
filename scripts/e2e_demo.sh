@@ -45,6 +45,10 @@ run_step "Login" \
   '{"version":"1.0","trace_id":"<trace>","type":"LoginReq","timestamp":"<ts>","payload":{"account":"demo@dungeonhub","password":"***","device_id":"device-123"}}' \
   '{"result":{"ok":true,"code":"OK","message":""},"data":{"token":"token-abc","session_id":"session-001","expires_in_sec":3600}}'
 
+run_step "SessionReconnect" \
+  '{"version":"1.0","trace_id":"<trace>","type":"SessionReconnectReq","timestamp":"<ts>","payload":{"token":"token-abc","last_seq":128}}' \
+  '{"result":{"ok":true,"code":"OK","message":""},"data":{"session_id":"session-002","resume_from_seq":129}}'
+
 run_step "PartyCreate" \
   '{"version":"1.0","trace_id":"<trace>","type":"PartyCreateReq","timestamp":"<ts>","payload":{"leader_char_id":1001}}' \
   '{"result":{"ok":true,"code":"OK","message":""},"data":{"party_id":"party-123"}}'

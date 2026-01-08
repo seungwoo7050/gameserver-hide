@@ -64,6 +64,8 @@ public:
     const std::string &traceId() const;
     void setProtocolVersion(std::uint16_t version);
     std::uint16_t protocolVersion() const;
+    void setLastSeq(std::uint64_t last_seq);
+    std::uint64_t lastSeq() const;
     bool dequeueSend(std::vector<std::uint8_t> &payload);
 
 private:
@@ -81,6 +83,7 @@ private:
     std::optional<UserContext> user_context_;
     std::string trace_id_;
     std::uint16_t protocol_version_{0};
+    std::uint64_t last_seq_{0};
 };
 
 }  // namespace net

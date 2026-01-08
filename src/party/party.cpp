@@ -217,6 +217,53 @@ bool PartyService::removeMember(SessionId member_session_id) {
     return true;
 }
 
+bool PartyService::replaceMemberSession(SessionId old_session_id,
+                                        SessionId new_session_id) {
+    if (old_session_id == new_session_id) {
+        return true;
+    }
+    auto member_it = member_index_.find(old_session_id);
+    if (member_it == member_index_.end()) {
+        return false;
+    }
+    if (member_index_.count(new_session_id) > 0) {
+        return false;
+    }
+    PartyId party_id = member_it->second;
+    auto party_it = parties_.find(party_id);
+    if (party_it == parties_.end()) {
+        return false;
+    }
+    auto &party = party_it->second;
+    auto member_entry = party.members.find(old_session_id);
+    if (member_entry == party.members.end()) {
+        return false;
+    }
+
+    PartyMember member = member_entry->second;
+    member.session_id = new_session_id;
+    party.members.erase(member_entry);
+    party.members.emplace(new_session_id, member);
+    if (party.leader_session_id == old_session_id) {
+        party.leader_session_id = new_session_id;
+    }
+    member_index_.erase(member_it);
+    member_index_[new_session_id] = party_id;
+
+    for (auto &invite_entry : invites_) {
+        auto &invites = invite_entry.second;
+        auto invite_it = invites.find(old_session_id);
+        if (invite_it == invites.end()) {
+            continue;
+        }
+        PartyInvite invite = invite_it->second;
+        invites.erase(invite_it);
+        invites.emplace(new_session_id, invite);
+    }
+
+    return true;
+}
+
 std::size_t PartyService::expireInvites(std::chrono::steady_clock::time_point now) {
     std::size_t expired_count = 0;
     for (auto &party_entry : parties_) {

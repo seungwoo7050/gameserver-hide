@@ -61,6 +61,7 @@ public:
     bool rejectInvite(PartyId party_id, SessionId invitee_session_id);
     bool disbandParty(PartyId party_id, SessionId requester_session_id);
     bool removeMember(SessionId member_session_id);
+    bool replaceMemberSession(SessionId old_session_id, SessionId new_session_id);
     std::size_t expireInvites(std::chrono::steady_clock::time_point now);
 
     std::optional<PartyInfo> getPartyInfo(PartyId party_id) const;

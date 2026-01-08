@@ -16,3 +16,5 @@ jobs:
         run: cmake --build build
       - name: Test
         run: ctest --test-dir build --output-on-failure --no-tests=error --timeout 60
+      - name: E2E demo script
+        run: scripts/e2e_demo.sh

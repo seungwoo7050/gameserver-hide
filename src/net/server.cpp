@@ -1,5 +1,6 @@
 #include "net/server.h"
 
+#include <algorithm>
 #include <chrono>
 #include <limits>
 #include <optional>
@@ -299,6 +300,100 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
             return Codec::encode(static_cast<std::uint16_t>(PacketType::LogoutRes),
                                  header.version,
                                  encoded);
+        }
+        case PacketType::SessionReconnectReq: {
+            SessionReconnectRequest request;
+            if (!decodeSessionReconnectRequest(payload, request)) {
+                SessionReconnectResponse response;
+                response.success = false;
+                response.message = "Malformed reconnect payload";
+                auto encoded = encodeSessionReconnectResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = response.message;
+                logger_.log("warn", "session_reconnect_failed", response.message, fields);
+                return Codec::encode(
+                    static_cast<std::uint16_t>(PacketType::SessionReconnectRes),
+                    header.version,
+                    encoded);
+            }
+
+            std::string user_id;
+            if (!token_service_.validateToken(request.token, now, user_id)) {
+                SessionReconnectResponse response;
+                response.success = false;
+                response.message = "Invalid or expired token";
+                auto encoded = encodeSessionReconnectResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = response.message;
+                logger_.log("warn", "session_reconnect_failed", response.message, fields);
+                return Codec::encode(
+                    static_cast<std::uint16_t>(PacketType::SessionReconnectRes),
+                    header.version,
+                    encoded);
+            }
+
+            SessionId existing_id = 0;
+            std::uint64_t previous_last_seq = 0;
+            if (registry_.hasUser(user_id, existing_id) && existing_id != session.id()) {
+                auto existing_session = findSession(existing_id);
+                if (existing_session) {
+                    previous_last_seq = existing_session->lastSeq();
+                    party_service_.replaceMemberSession(existing_id, session.id());
+                    guild_service_.replaceMemberSession(existing_id, session.id());
+                    auto instance_it = session_instances_.find(existing_id);
+                    if (instance_it != session_instances_.end()) {
+                        session_instances_[session.id()] = instance_it->second;
+                        session_instances_.erase(instance_it);
+                    }
+                    auto character_it = session_characters_.find(existing_id);
+                    if (character_it != session_characters_.end()) {
+                        session_characters_[session.id()] = character_it->second;
+                        session_characters_.erase(character_it);
+                    }
+                    existing_session->clearUserContext();
+                    sessions_.erase(existing_id);
+                }
+                registry_.removeSession(existing_id);
+            }
+
+            Session::UserContext context{user_id, request.token};
+            session.attachUserContext(context);
+            if (!registry_.registerSession(session.id(), {user_id, request.token})) {
+                SessionReconnectResponse response;
+                response.success = false;
+                response.message = "User already logged in";
+                auto encoded = encodeSessionReconnectResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "session_reconnect_failed", response.message, fields);
+                return Codec::encode(
+                    static_cast<std::uint16_t>(PacketType::SessionReconnectRes),
+                    header.version,
+                    encoded);
+            }
+
+            std::uint64_t restored_last_seq =
+                std::max<std::uint64_t>(request.last_seq, previous_last_seq);
+            session.setLastSeq(restored_last_seq);
+
+            SessionReconnectResponse response;
+            response.success = true;
+            response.message = "Reconnect accepted";
+            response.session_id = session.id();
+            response.resume_from_seq = static_cast<std::uint32_t>(restored_last_seq + 1);
+            auto encoded = encodeSessionReconnectResponse(response);
+            admin::LogFields fields = received_fields;
+            fields.user_id = user_id;
+            fields.reason = response.message;
+            logger_.log("info", "session_reconnected", response.message, fields);
+            return Codec::encode(
+                static_cast<std::uint16_t>(PacketType::SessionReconnectRes),
+                header.version,
+                encoded);
         }
         case PacketType::MatchReq: {
             MatchRequest request;
