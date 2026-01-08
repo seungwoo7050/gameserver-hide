@@ -1,0 +1,286 @@
+#include "net/auth.h"
+#include "net/codec.h"
+#include "net/protocol.h"
+#include "net/server.h"
+#include "net/session.h"
+
+#include <cassert>
+#include <chrono>
+#include <cstdint>
+#include <iostream>
+#include <string>
+#include <vector>
+
+namespace {
+
+void write_u32(std::uint32_t value, std::vector<std::uint8_t> &out) {
+    out.push_back(static_cast<std::uint8_t>((value >> 24) & 0xFF));
+    out.push_back(static_cast<std::uint8_t>((value >> 16) & 0xFF));
+    out.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
+    out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+}
+
+void write_u16(std::uint16_t value, std::vector<std::uint8_t> &out) {
+    out.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
+    out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+}
+
+net::FrameHeader decode_header(const std::vector<std::uint8_t> &frame,
+                               std::vector<std::uint8_t> &payload) {
+    net::FrameDecoder decoder;
+    decoder.append(frame);
+    net::FrameHeader header{};
+    bool ok = decoder.nextFrame(header, payload);
+    assert(ok);
+    return header;
+}
+
+void assert_payload_type(const std::vector<std::uint8_t> &frame,
+                         net::PacketType expected_type,
+                         std::uint16_t expected_version,
+                         std::vector<std::uint8_t> &payload) {
+    auto header = decode_header(frame, payload);
+    assert(header.type == static_cast<std::uint16_t>(expected_type));
+    assert(header.version == expected_version);
+}
+
+}  // namespace
+
+int main() {
+    using namespace std::chrono;
+
+    {
+        net::FrameDecoder decoder;
+        net::FrameHeader header{};
+        std::vector<std::uint8_t> payload;
+        std::vector<std::uint8_t> frame;
+        frame.push_back(0x00);
+        frame.push_back(0x00);
+        frame.push_back(0x00);
+        decoder.append(frame);
+        assert(!decoder.nextFrame(header, payload));
+    }
+
+    {
+        std::vector<std::uint8_t> frame;
+        write_u32(10, frame);
+        write_u16(1, frame);
+        write_u16(1, frame);
+        frame.push_back(0xAA);
+        frame.push_back(0xBB);
+        net::FrameDecoder decoder;
+        decoder.append(frame);
+        net::FrameHeader header{};
+        std::vector<std::uint8_t> payload;
+        assert(!decoder.nextFrame(header, payload));
+    }
+
+    {
+        std::vector<std::uint8_t> payload = {0x10, 0x20};
+        auto frame = net::Codec::encode(7, 2, payload);
+        net::FrameDecoder decoder;
+        decoder.append(frame);
+        net::FrameHeader header{};
+        std::vector<std::uint8_t> decoded;
+        assert(decoder.nextFrame(header, decoded));
+        assert(header.length == payload.size());
+        assert(header.type == 7);
+        assert(header.version == 2);
+        assert(decoded == payload);
+    }
+
+    {
+        net::SessionConfig config;
+        config.heartbeat_interval = milliseconds{1000};
+        config.timeout = milliseconds{2000};
+        auto start = steady_clock::now();
+        net::Session session(1, config, start);
+        assert(!session.shouldSendHeartbeat(start));
+        auto later = start + milliseconds{1500};
+        assert(session.shouldSendHeartbeat(later));
+        session.markHeartbeatSent(later);
+        auto timeout_time = start + milliseconds{2500};
+        assert(!session.tick(timeout_time));
+        assert(!session.connected());
+    }
+
+    {
+        net::SessionConfig config;
+        config.send_queue_limit_bytes = 6;
+        config.overflow_policy = net::OverflowPolicy::DropOldest;
+        auto now = steady_clock::now();
+        net::Session session(2, config, now);
+        assert(session.enqueueSend(std::vector<std::uint8_t>(4, 0xAA), now));
+        assert(session.enqueueSend(std::vector<std::uint8_t>(4, 0xBB), now));
+        assert(session.queuedBytes() <= config.send_queue_limit_bytes);
+    }
+
+    {
+        net::SessionConfig config;
+        config.send_queue_limit_bytes = 4;
+        config.overflow_policy = net::OverflowPolicy::DropNewest;
+        auto now = steady_clock::now();
+        net::Session session(3, config, now);
+        assert(!session.enqueueSend(std::vector<std::uint8_t>(8, 0xCC), now));
+        assert(session.connected());
+    }
+
+    {
+        net::SessionConfig config;
+        config.send_queue_limit_bytes = 4;
+        config.overflow_policy = net::OverflowPolicy::Disconnect;
+        auto now = steady_clock::now();
+        net::Session session(4, config, now);
+        assert(!session.enqueueSend(std::vector<std::uint8_t>(8, 0xDD), now));
+        assert(!session.connected());
+    }
+
+    {
+        net::SessionConfig config;
+        config.rate_limit_capacity = 4.0;
+        config.rate_limit_refill_per_sec = 4.0;
+        auto now = steady_clock::now();
+        net::Session session(5, config, now);
+        assert(session.enqueueSend(std::vector<std::uint8_t>(4, 0x11), now));
+        assert(!session.enqueueSend(std::vector<std::uint8_t>(1, 0x12), now));
+        auto later = now + seconds{1};
+        assert(session.enqueueSend(std::vector<std::uint8_t>(1, 0x13), later));
+    }
+
+    {
+        net::TokenService tokens(seconds{1});
+        auto now = steady_clock::now();
+        auto token = tokens.issueToken("user1", now);
+        std::string user_id;
+        assert(tokens.validateToken(token, now, user_id));
+        assert(user_id == "user1");
+        auto later = now + seconds{2};
+        assert(!tokens.validateToken(token, later, user_id));
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto login_payload = net::encodeLoginRequest(login);
+        net::FrameHeader header{static_cast<std::uint32_t>(login_payload.size()),
+                                static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                net::kMinProtocolVersion};
+        auto response_frame = server.handlePacket(*session, header, login_payload, now);
+        assert(response_frame.has_value());
+        std::vector<std::uint8_t> response_payload;
+        assert_payload_type(*response_frame, net::PacketType::LoginRes,
+                            net::kMinProtocolVersion, response_payload);
+        net::LoginResponse response;
+        assert(net::decodeLoginResponse(response_payload, response));
+        assert(response.accepted);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "badpw"};
+        auto login_payload = net::encodeLoginRequest(login);
+        net::FrameHeader header{static_cast<std::uint32_t>(login_payload.size()),
+                                static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                net::kMinProtocolVersion};
+        auto response_frame = server.handlePacket(*session, header, login_payload, now);
+        assert(response_frame.has_value());
+        std::vector<std::uint8_t> response_payload;
+        assert_payload_type(*response_frame, net::PacketType::LoginRes,
+                            net::kMinProtocolVersion, response_payload);
+        net::LoginResponse response;
+        assert(net::decodeLoginResponse(response_payload, response));
+        assert(!response.accepted);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session1 = server.createSession(config, now);
+        auto session2 = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto payload = net::encodeLoginRequest(login);
+        net::FrameHeader header{static_cast<std::uint32_t>(payload.size()),
+                                static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                net::kMinProtocolVersion};
+        auto response1 = server.handlePacket(*session1, header, payload, now);
+        assert(response1.has_value());
+        auto response2 = server.handlePacket(*session2, header, payload, now);
+        assert(response2.has_value());
+        std::vector<std::uint8_t> response_payload;
+        assert_payload_type(*response2, net::PacketType::LoginRes,
+                            net::kMinProtocolVersion, response_payload);
+        net::LoginResponse response;
+        assert(net::decodeLoginResponse(response_payload, response));
+        assert(!response.accepted);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto payload = net::encodeLoginRequest(login);
+        net::FrameHeader header{static_cast<std::uint32_t>(payload.size()),
+                                static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                net::kMinProtocolVersion};
+        auto response = server.handlePacket(*session, header, payload, now);
+        assert(response.has_value());
+        net::LogoutRequest logout;
+        auto logout_payload = net::encodeLogoutRequest(logout);
+        net::FrameHeader logout_header{0,
+                                       static_cast<std::uint16_t>(net::PacketType::LogoutReq),
+                                       net::kMinProtocolVersion};
+        auto logout_response =
+            server.handlePacket(*session, logout_header, logout_payload, now);
+        assert(logout_response.has_value());
+        assert(server.sessionUser(session->id()) == nullptr);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto payload = net::encodeLoginRequest(login);
+        net::FrameHeader header{static_cast<std::uint32_t>(payload.size()),
+                                static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                net::kMinProtocolVersion};
+        auto response = server.handlePacket(*session, header, payload, now);
+        assert(response.has_value());
+        server.removeSession(session->id());
+        assert(server.sessionUser(session->id()) == nullptr);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto payload = net::encodeLoginRequest(login);
+        net::FrameHeader header{static_cast<std::uint32_t>(payload.size()),
+                                static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                static_cast<std::uint16_t>(net::kMaxProtocolVersion + 1)};
+        auto response = server.handlePacket(*session, header, payload, now);
+        assert(response.has_value());
+        std::vector<std::uint8_t> response_payload;
+        assert_payload_type(*response, net::PacketType::VersionReject,
+                            static_cast<std::uint16_t>(net::kMaxProtocolVersion + 1),
+                            response_payload);
+        net::VersionReject reject;
+        assert(net::decodeVersionReject(response_payload, reject));
+        assert(reject.client_version == net::kMaxProtocolVersion + 1);
+    }
+
+    std::cout << "All tests passed.\n";
+    return 0;
+}
