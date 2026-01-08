@@ -828,6 +828,24 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
                                      encoded);
             }
 
+            auto grant_it = instance_reward_grants_.find(instance_it->second);
+            if (grant_it != instance_reward_grants_.end()) {
+                DungeonResultResponse response;
+                response.success = false;
+                response.code = "REWARD_DUPLICATE";
+                response.message = "Reward grant already processed";
+                response.summary = "result rejected";
+                auto encoded = encodeDungeonResultResponse(response);
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.user_id = user->user_id;
+                fields.reason = response.message;
+                logger_.log("warn", "dungeon_result_failed", response.message, fields);
+                return Codec::encode(static_cast<std::uint16_t>(PacketType::DungeonResultRes),
+                                     header.version,
+                                     encoded);
+            }
+
             dungeon::InstanceState next_state =
                 request.result == DungeonResultType::Clear ? dungeon::InstanceState::Clear
                                                            : dungeon::InstanceState::Fail;
@@ -875,13 +893,18 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
             }
 
             reward::Inventory reward_inventory;
-            bool grant_ok = reward_service_.grantRewards(
-                reward_inventory, next_reward_grant_id_++, reward_items);
-            if (!grant_ok) {
+            auto grant_id = next_reward_grant_id_++;
+            auto grant_result = reward_service_.grantRewardsDetailed(
+                reward_inventory, grant_id, reward_items);
+            if (grant_result != reward::RewardService::GrantResult::Completed) {
                 DungeonResultResponse response;
                 response.success = false;
-                response.code = "REWARD_FAILED";
-                response.message = "Reward grant failed";
+                response.code = grant_result == reward::RewardService::GrantResult::Duplicate
+                                    ? "REWARD_DUPLICATE"
+                                    : "REWARD_FAILED";
+                response.message = grant_result == reward::RewardService::GrantResult::Duplicate
+                                       ? "Reward grant already processed"
+                                       : "Reward grant failed";
                 response.summary = "result rejected";
                 auto encoded = encodeDungeonResultResponse(response);
                 metrics_.error_total += 1;
@@ -895,6 +918,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
             }
 
             bool inventory_ok = true;
+            auto inventory_tx = inventory_storage_.beginTransaction();
             for (const auto &item : request.rewards) {
                 if (!inventory_storage_.addItem(char_it->second,
                                                 item.item_id,
@@ -905,6 +929,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
                 }
             }
             if (!inventory_ok) {
+                inventory_storage_.rollbackTransaction(inventory_tx);
                 DungeonResultResponse response;
                 response.success = false;
                 response.code = "INVENTORY_FAILED";
@@ -920,12 +945,14 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
                                      header.version,
                                      encoded);
             }
+            inventory_storage_.commitTransaction(inventory_tx);
 
             DungeonResultResponse response;
             response.success = true;
             response.code = "OK";
             response.message = "Dungeon result recorded";
             response.summary = "result recorded";
+            instance_reward_grants_[instance_it->second] = grant_id;
             auto encoded = encodeDungeonResultResponse(response);
             admin::LogFields fields = received_fields;
             fields.user_id = user->user_id;
@@ -973,6 +1000,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
             }
 
             bool inventory_ok = true;
+            auto inventory_tx = inventory_storage_.beginTransaction();
             for (const auto &item : request.items) {
                 if (!inventory_storage_.addItem(request.char_id,
                                                 item.item_id,
@@ -981,6 +1009,11 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
                     inventory_ok = false;
                     break;
                 }
+            }
+            if (!inventory_ok) {
+                inventory_storage_.rollbackTransaction(inventory_tx);
+            } else {
+                inventory_storage_.commitTransaction(inventory_tx);
             }
 
             InventoryUpdateResponse response;
@@ -1323,6 +1356,10 @@ const Session::UserContext *Server::sessionUser(SessionId id) const {
 
 party::PartyService &Server::partyService() {
     return party_service_;
+}
+
+dungeon::InstanceManager &Server::instanceManager() {
+    return instance_manager_;
 }
 
 bool Server::forceDisconnect(SessionId id,

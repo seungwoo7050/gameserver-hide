@@ -53,6 +53,7 @@ public:
 
     const Session::UserContext *sessionUser(SessionId id) const;
     party::PartyService &partyService();
+    dungeon::InstanceManager &instanceManager();
     bool forceDisconnect(SessionId id,
                          const std::string &reason,
                          const std::string &request_trace_id);
@@ -86,6 +87,7 @@ private:
     std::unordered_map<party::PartyId, dungeon::InstanceId> party_instances_;
     std::unordered_map<dungeon::InstanceId, std::string> instance_tickets_;
     std::unordered_map<dungeon::InstanceId, std::uint32_t> instance_seeds_;
+    std::unordered_map<dungeon::InstanceId, reward::GrantId> instance_reward_grants_;
     std::unordered_map<SessionId, dungeon::InstanceId> session_instances_;
     std::unordered_map<SessionId, std::uint64_t> session_characters_;
     std::mt19937 rng_{std::random_device{}()};

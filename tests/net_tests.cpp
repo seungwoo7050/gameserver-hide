@@ -1,5 +1,6 @@
 #include "admin/admin.h"
 #include "admin/logging.h"
+#include "dungeon/instance_manager.h"
 #include "net/auth.h"
 #include "net/codec.h"
 #include "net/protocol.h"
@@ -278,6 +279,142 @@ int main() {
         assert(reconnect_result.message == "Invalid or expired token");
         assert(server.sessionUser(session->id()) == nullptr);
         assert(session->lastSeq() == 0);
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto login_payload = net::encodeLoginRequest(login);
+        net::FrameHeader login_header{static_cast<std::uint32_t>(login_payload.size()),
+                                      static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                      net::kMinProtocolVersion};
+        auto login_response =
+            server.handlePacket(*session, login_header, login_payload, now);
+        assert(login_response.has_value());
+        std::vector<std::uint8_t> login_payload_out;
+        assert_payload_type(*login_response, net::PacketType::LoginRes,
+                            net::kMinProtocolVersion, login_payload_out);
+        net::LoginResponse login_result;
+        assert(net::decodeLoginResponse(login_payload_out, login_result));
+        assert(login_result.accepted);
+
+        auto party_id = server.partyService().createParty(session->id(), "user1");
+        assert(party_id.has_value());
+
+        net::MatchRequest match;
+        match.party_id = *party_id;
+        match.dungeon_id = 1;
+        match.difficulty = "normal";
+        auto match_payload = net::encodeMatchRequest(match);
+        net::FrameHeader match_header{static_cast<std::uint32_t>(match_payload.size()),
+                                      static_cast<std::uint16_t>(net::PacketType::MatchReq),
+                                      net::kMinProtocolVersion};
+        auto match_response =
+            server.handlePacket(*session, match_header, match_payload, now);
+        assert(match_response.has_value());
+        std::vector<std::uint8_t> match_payload_out;
+        assert_payload_type(*match_response, net::PacketType::MatchFoundNotify,
+                            net::kMinProtocolVersion, match_payload_out);
+        net::MatchFoundNotify match_result;
+        assert(net::decodeMatchFoundNotify(match_payload_out, match_result));
+        assert(match_result.success);
+
+        net::DungeonEnterRequest enter;
+        enter.instance_id = match_result.instance_id;
+        enter.ticket = match_result.ticket;
+        enter.char_id = 9001;
+        auto enter_payload = net::encodeDungeonEnterRequest(enter);
+        net::FrameHeader enter_header{static_cast<std::uint32_t>(enter_payload.size()),
+                                      static_cast<std::uint16_t>(net::PacketType::DungeonEnterReq),
+                                      net::kMinProtocolVersion};
+        auto enter_response =
+            server.handlePacket(*session, enter_header, enter_payload, now);
+        assert(enter_response.has_value());
+        std::vector<std::uint8_t> enter_payload_out;
+        assert_payload_type(*enter_response, net::PacketType::DungeonEnterRes,
+                            net::kMinProtocolVersion, enter_payload_out);
+        net::DungeonEnterResponse enter_result;
+        assert(net::decodeDungeonEnterResponse(enter_payload_out, enter_result));
+        assert(enter_result.success);
+
+        assert(server.instanceManager().requestTransition(
+            match_result.instance_id, dungeon::InstanceState::Playing,
+            server.partyService()));
+
+        net::DungeonResultNotify result;
+        result.result = net::DungeonResultType::Clear;
+        result.time_sec = 120;
+        result.deaths = 0;
+        result.rewards.push_back(net::RewardItem{501, 1});
+        auto result_payload = net::encodeDungeonResultNotify(result);
+        net::FrameHeader result_header{static_cast<std::uint32_t>(result_payload.size()),
+                                       static_cast<std::uint16_t>(net::PacketType::DungeonResultNotify),
+                                       net::kMinProtocolVersion};
+        auto result_response =
+            server.handlePacket(*session, result_header, result_payload, now);
+        assert(result_response.has_value());
+        std::vector<std::uint8_t> result_payload_out;
+        assert_payload_type(*result_response, net::PacketType::DungeonResultRes,
+                            net::kMinProtocolVersion, result_payload_out);
+        net::DungeonResultResponse result_out;
+        assert(net::decodeDungeonResultResponse(result_payload_out, result_out));
+        assert(result_out.success);
+        assert(result_out.code == "OK");
+
+        auto duplicate_response =
+            server.handlePacket(*session, result_header, result_payload, now);
+        assert(duplicate_response.has_value());
+        std::vector<std::uint8_t> duplicate_payload_out;
+        assert_payload_type(*duplicate_response, net::PacketType::DungeonResultRes,
+                            net::kMinProtocolVersion, duplicate_payload_out);
+        net::DungeonResultResponse duplicate_out;
+        assert(net::decodeDungeonResultResponse(duplicate_payload_out, duplicate_out));
+        assert(!duplicate_out.success);
+        assert(duplicate_out.code == "REWARD_DUPLICATE");
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto login_payload = net::encodeLoginRequest(login);
+        net::FrameHeader login_header{static_cast<std::uint32_t>(login_payload.size()),
+                                      static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                      net::kMinProtocolVersion};
+        auto login_response =
+            server.handlePacket(*session, login_header, login_payload, now);
+        assert(login_response.has_value());
+        std::vector<std::uint8_t> login_payload_out;
+        assert_payload_type(*login_response, net::PacketType::LoginRes,
+                            net::kMinProtocolVersion, login_payload_out);
+        net::LoginResponse login_result;
+        assert(net::decodeLoginResponse(login_payload_out, login_result));
+        assert(login_result.accepted);
+
+        net::InventoryUpdateNotify notify;
+        notify.char_id = 7001;
+        notify.items.push_back(net::RewardItem{601, 1});
+        notify.items.push_back(net::RewardItem{602, 0});
+        auto notify_payload = net::encodeInventoryUpdateNotify(notify);
+        net::FrameHeader notify_header{static_cast<std::uint32_t>(notify_payload.size()),
+                                       static_cast<std::uint16_t>(net::PacketType::InventoryUpdateNotify),
+                                       net::kMinProtocolVersion};
+        auto notify_response =
+            server.handlePacket(*session, notify_header, notify_payload, now);
+        assert(notify_response.has_value());
+        std::vector<std::uint8_t> notify_payload_out;
+        assert_payload_type(*notify_response, net::PacketType::InventoryUpdateRes,
+                            net::kMinProtocolVersion, notify_payload_out);
+        net::InventoryUpdateResponse notify_result;
+        assert(net::decodeInventoryUpdateResponse(notify_payload_out, notify_result));
+        assert(!notify_result.success);
+        assert(notify_result.code == "INVENTORY_FAILED");
+        assert(notify_result.inventory_version == 0);
     }
 
     {

@@ -2,9 +2,11 @@
 
 namespace reward {
 
-bool RewardService::grantRewards(Inventory &inventory, GrantId grant_id, const std::vector<RewardItem> &items) {
+RewardService::GrantResult RewardService::grantRewardsDetailed(Inventory &inventory,
+                                                               GrantId grant_id,
+                                                               const std::vector<RewardItem> &items) {
     if (!inventory.beginGrant(grant_id)) {
-        return false;
+        return GrantResult::Duplicate;
     }
 
     std::vector<RewardItem> applied;
@@ -14,13 +16,17 @@ bool RewardService::grantRewards(Inventory &inventory, GrantId grant_id, const s
                 inventory.removeItem(rollback.item_id, rollback.quantity);
             }
             inventory.failGrant(grant_id);
-            return false;
+            return GrantResult::Failed;
         }
         applied.push_back(item);
     }
 
     inventory.commitGrant(grant_id);
-    return true;
+    return GrantResult::Completed;
+}
+
+bool RewardService::grantRewards(Inventory &inventory, GrantId grant_id, const std::vector<RewardItem> &items) {
+    return grantRewardsDetailed(inventory, grant_id, items) == GrantResult::Completed;
 }
 
 bool RewardService::grantFromTable(Inventory &inventory, GrantId grant_id, std::uint32_t table_id, std::mt19937 &rng) {

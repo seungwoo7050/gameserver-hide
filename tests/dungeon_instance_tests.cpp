@@ -55,6 +55,46 @@ int main() {
 
     {
         party::PartyService party_service;
+        auto party_id = party_service.createParty(15, "leader");
+        assert(party_id.has_value());
+
+        dungeon::InstanceManager manager;
+        auto instance_id = manager.createInstance(*party_id, party_service);
+        assert(instance_id.has_value());
+
+        assert(!manager.requestTransition(*instance_id,
+                                          dungeon::InstanceState::Playing,
+                                          party_service));
+    }
+
+    {
+        party::PartyService party_service;
+        auto party_id = party_service.createParty(20, "leader");
+        assert(party_id.has_value());
+
+        dungeon::InstanceManager manager;
+        auto instance_id = manager.createInstance(*party_id, party_service);
+        assert(instance_id.has_value());
+
+        assert(manager.requestTransition(*instance_id,
+                                         dungeon::InstanceState::Ready,
+                                         party_service));
+        assert(manager.requestTransition(*instance_id,
+                                         dungeon::InstanceState::Playing,
+                                         party_service));
+        assert(manager.requestTransition(*instance_id,
+                                         dungeon::InstanceState::Clear,
+                                         party_service));
+        assert(!manager.requestTransition(*instance_id,
+                                          dungeon::InstanceState::Ready,
+                                          party_service));
+        assert(!manager.requestTransition(*instance_id,
+                                          dungeon::InstanceState::Playing,
+                                          party_service));
+    }
+
+    {
+        party::PartyService party_service;
         auto party_id = party_service.createParty(100, "leader");
         assert(party_id.has_value());
 
