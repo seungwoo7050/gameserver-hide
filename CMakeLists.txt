@@ -35,6 +35,33 @@ target_include_directories(dungeonhub
         ${PROJECT_SOURCE_DIR}/src
 )
 
+add_executable(dungeonhub_load_sim
+    scripts/load_match_sim.cpp
+    src/admin/admin.cpp
+    src/admin/logging.cpp
+    src/chat/chat.cpp
+    src/combat/dispatcher.cpp
+    src/dungeon/instance_manager.cpp
+    src/guild/guild.cpp
+    src/inventory/in_memory_inventory_storage.cpp
+    src/match/match_queue.cpp
+    src/net/auth.cpp
+    src/net/codec.cpp
+    src/net/protocol.cpp
+    src/net/server.cpp
+    src/net/session.cpp
+    src/party/party.cpp
+    src/reward/drop_table.cpp
+    src/reward/inventory.cpp
+    src/reward/reward_service.cpp
+)
+
+target_include_directories(dungeonhub_load_sim
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/src
+)
+
 if(BUILD_TESTING)
     add_executable(dungeonhub_tests
         src/admin/admin.cpp

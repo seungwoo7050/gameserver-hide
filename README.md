@@ -23,6 +23,18 @@ Run the minimal scripted demo client and review the generated logs/docs.
 - Sample log: `docs/e2e/phase10_log.txt`
 - Scenario doc: `docs/e2e/phase10_scenario.md`
 
+## Load Simulation
+Build the load simulation target and run it to generate match/overflow logs and a summary.
+```bash
+cmake -S . -B build
+cmake --build build --target dungeonhub_load_sim
+./build/dungeonhub_load_sim --sessions 24 --requests-per-session 1 --concurrency 6 \\
+  --send-queue-limit 2048 --overflow-payload 4096 --overflow-burst 3 \\
+  --log-path docs/load_run.log --summary-path docs/load_summary.md
+```
+- Script: `scripts/load_match_sim.cpp`
+- Summary: `docs/load_summary.md`
+
 ## Development Flow
 1. 설계 문서 확인: `docs/architecture.md`, `docs/protocol.md`
 2. 모듈 경계 확인: `src/net`, `src/match`, `src/dungeon`, `src/party` 등
