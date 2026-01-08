@@ -22,6 +22,26 @@ void write_u16(std::uint16_t value, std::vector<std::uint8_t> &out) {
     out.push_back(static_cast<std::uint8_t>(value & 0xFF));
 }
 
+bool read_u32(const std::vector<std::uint8_t> &payload, std::size_t &offset,
+              std::uint32_t &out) {
+    if (offset + 4 > payload.size()) {
+        return false;
+    }
+    out = (static_cast<std::uint32_t>(payload[offset]) << 24) |
+          (static_cast<std::uint32_t>(payload[offset + 1]) << 16) |
+          (static_cast<std::uint32_t>(payload[offset + 2]) << 8) |
+          static_cast<std::uint32_t>(payload[offset + 3]);
+    offset += 4;
+    return true;
+}
+
+void write_u32(std::uint32_t value, std::vector<std::uint8_t> &out) {
+    out.push_back(static_cast<std::uint8_t>((value >> 24) & 0xFF));
+    out.push_back(static_cast<std::uint8_t>((value >> 16) & 0xFF));
+    out.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
+    out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+}
+
 bool read_u64(const std::vector<std::uint8_t> &payload, std::size_t &offset,
               std::uint64_t &out) {
     if (offset + 8 > payload.size()) {
@@ -88,6 +108,39 @@ void write_string_list(const std::vector<std::string> &values,
     write_u16(length, out);
     for (std::uint16_t i = 0; i < length; ++i) {
         write_string(values[i], out);
+    }
+}
+
+bool read_reward_items(const std::vector<std::uint8_t> &payload,
+                       std::size_t &offset,
+                       std::vector<RewardItem> &out) {
+    std::uint16_t count = 0;
+    if (!read_u16(payload, offset, count)) {
+        return false;
+    }
+    out.clear();
+    out.reserve(count);
+    for (std::uint16_t i = 0; i < count; ++i) {
+        RewardItem item;
+        if (!read_u32(payload, offset, item.item_id)) {
+            return false;
+        }
+        if (!read_u32(payload, offset, item.count)) {
+            return false;
+        }
+        out.push_back(item);
+    }
+    return true;
+}
+
+void write_reward_items(const std::vector<RewardItem> &items,
+                        std::vector<std::uint8_t> &out) {
+    auto length = static_cast<std::uint16_t>(
+        std::min<std::size_t>(items.size(), std::numeric_limits<std::uint16_t>::max()));
+    write_u16(length, out);
+    for (std::uint16_t i = 0; i < length; ++i) {
+        write_u32(items[i].item_id, out);
+        write_u32(items[i].count, out);
     }
 }
 
@@ -524,6 +577,182 @@ bool decodePartyEvent(const std::vector<std::uint8_t> &payload, PartyEvent &out)
     return offset == payload.size();
 }
 
+std::vector<std::uint8_t> encodeMatchRequest(const MatchRequest &request) {
+    std::vector<std::uint8_t> out;
+    write_u64(request.party_id, out);
+    write_u32(request.dungeon_id, out);
+    write_string(request.difficulty, out);
+    return out;
+}
+
+bool decodeMatchRequest(const std::vector<std::uint8_t> &payload, MatchRequest &out) {
+    std::size_t offset = 0;
+    if (!read_u64(payload, offset, out.party_id)) {
+        return false;
+    }
+    if (!read_u32(payload, offset, out.dungeon_id)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.difficulty)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeMatchFoundNotify(const MatchFoundNotify &notify) {
+    std::vector<std::uint8_t> out;
+    out.push_back(static_cast<std::uint8_t>(notify.success ? 1 : 0));
+    write_string(notify.code, out);
+    write_string(notify.message, out);
+    write_u64(notify.party_id, out);
+    write_u64(notify.instance_id, out);
+    write_string(notify.endpoint, out);
+    write_string(notify.ticket, out);
+    return out;
+}
+
+bool decodeMatchFoundNotify(const std::vector<std::uint8_t> &payload,
+                            MatchFoundNotify &out) {
+    if (payload.empty()) {
+        return false;
+    }
+    std::size_t offset = 0;
+    out.success = payload[offset++] != 0;
+    if (!read_string(payload, offset, out.code)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    if (!read_u64(payload, offset, out.party_id)) {
+        return false;
+    }
+    if (!read_u64(payload, offset, out.instance_id)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.endpoint)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.ticket)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeDungeonEnterRequest(const DungeonEnterRequest &request) {
+    std::vector<std::uint8_t> out;
+    write_u64(request.instance_id, out);
+    write_string(request.ticket, out);
+    write_u64(request.char_id, out);
+    return out;
+}
+
+bool decodeDungeonEnterRequest(const std::vector<std::uint8_t> &payload,
+                               DungeonEnterRequest &out) {
+    std::size_t offset = 0;
+    if (!read_u64(payload, offset, out.instance_id)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.ticket)) {
+        return false;
+    }
+    if (!read_u64(payload, offset, out.char_id)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeDungeonEnterResponse(const DungeonEnterResponse &response) {
+    std::vector<std::uint8_t> out;
+    out.push_back(static_cast<std::uint8_t>(response.success ? 1 : 0));
+    write_string(response.code, out);
+    write_string(response.message, out);
+    write_u16(static_cast<std::uint16_t>(response.state), out);
+    write_u32(response.seed, out);
+    return out;
+}
+
+bool decodeDungeonEnterResponse(const std::vector<std::uint8_t> &payload,
+                                DungeonEnterResponse &out) {
+    if (payload.empty()) {
+        return false;
+    }
+    std::size_t offset = 0;
+    out.success = payload[offset++] != 0;
+    if (!read_string(payload, offset, out.code)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    std::uint16_t state = 0;
+    if (!read_u16(payload, offset, state)) {
+        return false;
+    }
+    out.state = static_cast<DungeonState>(state);
+    if (!read_u32(payload, offset, out.seed)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeDungeonResultNotify(const DungeonResultNotify &notify) {
+    std::vector<std::uint8_t> out;
+    write_u16(static_cast<std::uint16_t>(notify.result), out);
+    write_u32(notify.time_sec, out);
+    write_u16(notify.deaths, out);
+    write_reward_items(notify.rewards, out);
+    return out;
+}
+
+bool decodeDungeonResultNotify(const std::vector<std::uint8_t> &payload,
+                               DungeonResultNotify &out) {
+    std::size_t offset = 0;
+    std::uint16_t result = 0;
+    if (!read_u16(payload, offset, result)) {
+        return false;
+    }
+    out.result = static_cast<DungeonResultType>(result);
+    if (!read_u32(payload, offset, out.time_sec)) {
+        return false;
+    }
+    if (!read_u16(payload, offset, out.deaths)) {
+        return false;
+    }
+    if (!read_reward_items(payload, offset, out.rewards)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeDungeonResultResponse(const DungeonResultResponse &response) {
+    std::vector<std::uint8_t> out;
+    out.push_back(static_cast<std::uint8_t>(response.success ? 1 : 0));
+    write_string(response.code, out);
+    write_string(response.message, out);
+    write_string(response.summary, out);
+    return out;
+}
+
+bool decodeDungeonResultResponse(const std::vector<std::uint8_t> &payload,
+                                 DungeonResultResponse &out) {
+    if (payload.empty()) {
+        return false;
+    }
+    std::size_t offset = 0;
+    out.success = payload[offset++] != 0;
+    if (!read_string(payload, offset, out.code)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.summary)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
 std::vector<std::uint8_t> encodeChatSendRequest(const ChatSendRequest &request) {
     std::vector<std::uint8_t> out;
     write_u16(static_cast<std::uint16_t>(request.channel), out);
@@ -592,6 +821,54 @@ bool decodeChatEvent(const std::vector<std::uint8_t> &payload, ChatEvent &out) {
         return false;
     }
     if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeInventoryUpdateNotify(const InventoryUpdateNotify &notify) {
+    std::vector<std::uint8_t> out;
+    write_u64(notify.char_id, out);
+    write_reward_items(notify.items, out);
+    return out;
+}
+
+bool decodeInventoryUpdateNotify(const std::vector<std::uint8_t> &payload,
+                                 InventoryUpdateNotify &out) {
+    std::size_t offset = 0;
+    if (!read_u64(payload, offset, out.char_id)) {
+        return false;
+    }
+    if (!read_reward_items(payload, offset, out.items)) {
+        return false;
+    }
+    return offset == payload.size();
+}
+
+std::vector<std::uint8_t> encodeInventoryUpdateResponse(
+    const InventoryUpdateResponse &response) {
+    std::vector<std::uint8_t> out;
+    out.push_back(static_cast<std::uint8_t>(response.success ? 1 : 0));
+    write_string(response.code, out);
+    write_string(response.message, out);
+    write_u64(response.inventory_version, out);
+    return out;
+}
+
+bool decodeInventoryUpdateResponse(const std::vector<std::uint8_t> &payload,
+                                   InventoryUpdateResponse &out) {
+    if (payload.empty()) {
+        return false;
+    }
+    std::size_t offset = 0;
+    out.success = payload[offset++] != 0;
+    if (!read_string(payload, offset, out.code)) {
+        return false;
+    }
+    if (!read_string(payload, offset, out.message)) {
+        return false;
+    }
+    if (!read_u64(payload, offset, out.inventory_version)) {
         return false;
     }
     return offset == payload.size();
