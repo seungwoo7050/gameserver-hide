@@ -102,12 +102,18 @@ if(BUILD_TESTING)
         tests/guild_chat_tests.cpp
         src/chat/chat.cpp
         src/guild/guild.cpp
+        src/inventory/in_memory_inventory_storage.cpp
+        src/match/match_queue.cpp
         src/net/auth.cpp
         src/net/codec.cpp
         src/net/protocol.cpp
         src/net/server.cpp
         src/net/session.cpp
+        src/dungeon/instance_manager.cpp
         src/party/party.cpp
+        src/reward/drop_table.cpp
+        src/reward/inventory.cpp
+        src/reward/reward_service.cpp
     )
     target_include_directories(dungeonhub_tests
         PRIVATE
