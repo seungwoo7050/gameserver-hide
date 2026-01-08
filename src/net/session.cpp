@@ -102,6 +102,18 @@ std::size_t Session::queuedBytes() const {
     return send_queue_bytes_;
 }
 
+void Session::attachUserContext(UserContext context) {
+    user_context_ = std::move(context);
+}
+
+void Session::clearUserContext() {
+    user_context_.reset();
+}
+
+const std::optional<Session::UserContext> &Session::userContext() const {
+    return user_context_;
+}
+
 void Session::disconnect(const char *reason) {
     if (!connected_) {
         return;

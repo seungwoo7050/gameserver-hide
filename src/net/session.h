@@ -3,6 +3,8 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace net {
@@ -35,6 +37,11 @@ class Session {
 public:
     using SessionId = std::uint64_t;
 
+    struct UserContext {
+        std::string user_id;
+        std::string token;
+    };
+
     Session(SessionId id, const SessionConfig &config,
             std::chrono::steady_clock::time_point now);
 
@@ -51,6 +58,10 @@ public:
     bool tick(std::chrono::steady_clock::time_point now);
     std::size_t queuedBytes() const;
 
+    void attachUserContext(UserContext context);
+    void clearUserContext();
+    const std::optional<UserContext> &userContext() const;
+
 private:
     void disconnect(const char *reason);
 
@@ -63,6 +74,7 @@ private:
     std::chrono::steady_clock::time_point last_heartbeat_;
     std::deque<std::vector<std::uint8_t>> send_queue_;
     std::size_t send_queue_bytes_{0};
+    std::optional<UserContext> user_context_;
 };
 
 }  // namespace net
