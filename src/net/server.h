@@ -3,7 +3,7 @@
 #include "admin/logging.h"
 #include "chat/chat.h"
 #include "guild/guild.h"
-#include "inventory/in_memory_inventory_storage.h"
+#include "inventory/inventory_storage.h"
 #include "match/match_queue.h"
 #include "net/auth.h"
 #include "net/codec.h"
@@ -32,7 +32,7 @@ public:
         std::uint64_t error_total{0};
     };
 
-    Server();
+    explicit Server(std::shared_ptr<inventory::InventoryStorage> inventory_storage = nullptr);
 
     std::shared_ptr<Session> createSession(
         const SessionConfig &config,
@@ -82,7 +82,7 @@ private:
     chat::ChatService chat_service_;
     match::MatchQueue match_queue_{match::MatchRule{}};
     dungeon::InstanceManager instance_manager_;
-    inventory::InMemoryInventoryStorage inventory_storage_;
+    std::shared_ptr<inventory::InventoryStorage> inventory_storage_;
     reward::RewardService reward_service_;
     std::unordered_map<party::PartyId, dungeon::InstanceId> party_instances_;
     std::unordered_map<dungeon::InstanceId, std::string> instance_tickets_;

@@ -16,7 +16,9 @@ add_executable(dungeonhub
     src/combat/dispatcher.cpp
     src/dungeon/instance_manager.cpp
     src/guild/guild.cpp
+    src/inventory/cached_inventory_storage.cpp
     src/inventory/in_memory_inventory_storage.cpp
+    src/inventory/mysql_inventory_storage.cpp
     src/match/match_queue.cpp
     src/net/auth.cpp
     src/net/codec.cpp
@@ -43,7 +45,9 @@ add_executable(dungeonhub_load_sim
     src/combat/dispatcher.cpp
     src/dungeon/instance_manager.cpp
     src/guild/guild.cpp
+    src/inventory/cached_inventory_storage.cpp
     src/inventory/in_memory_inventory_storage.cpp
+    src/inventory/mysql_inventory_storage.cpp
     src/match/match_queue.cpp
     src/net/auth.cpp
     src/net/codec.cpp
@@ -71,7 +75,9 @@ if(BUILD_TESTING)
         src/combat/dispatcher.cpp
         src/dungeon/instance_manager.cpp
         src/guild/guild.cpp
+        src/inventory/cached_inventory_storage.cpp
         src/inventory/in_memory_inventory_storage.cpp
+        src/inventory/mysql_inventory_storage.cpp
         src/match/match_queue.cpp
         src/net/auth.cpp
         src/net/codec.cpp
@@ -89,7 +95,9 @@ if(BUILD_TESTING)
         src/combat/dispatcher.cpp
         src/dungeon/instance_manager.cpp
         src/guild/guild.cpp
+        src/inventory/cached_inventory_storage.cpp
         src/inventory/in_memory_inventory_storage.cpp
+        src/inventory/mysql_inventory_storage.cpp
         src/match/match_queue.cpp
         src/party/party.cpp
         src/reward/drop_table.cpp
@@ -101,7 +109,9 @@ if(BUILD_TESTING)
         src/chat/chat.cpp
         src/combat/dispatcher.cpp
         src/dungeon/instance_manager.cpp
+        src/inventory/cached_inventory_storage.cpp
         src/inventory/in_memory_inventory_storage.cpp
+        src/inventory/mysql_inventory_storage.cpp
         src/guild/guild.cpp
         src/party/party.cpp
         src/reward/drop_table.cpp
@@ -111,7 +121,9 @@ if(BUILD_TESTING)
     add_executable(dungeonhub_combat_reward_tests
         tests/combat_reward_tests.cpp
         src/combat/dispatcher.cpp
+        src/inventory/cached_inventory_storage.cpp
         src/inventory/in_memory_inventory_storage.cpp
+        src/inventory/mysql_inventory_storage.cpp
         src/chat/chat.cpp
         src/guild/guild.cpp
         src/reward/drop_table.cpp
@@ -120,7 +132,17 @@ if(BUILD_TESTING)
     )
     add_executable(dungeonhub_inventory_tests
         tests/inventory_tests.cpp
+        src/inventory/cached_inventory_storage.cpp
         src/inventory/in_memory_inventory_storage.cpp
+        src/inventory/mysql_inventory_storage.cpp
+        src/chat/chat.cpp
+        src/guild/guild.cpp
+    )
+    add_executable(dungeonhub_inventory_cached_tests
+        tests/inventory_cached_storage_tests.cpp
+        src/inventory/cached_inventory_storage.cpp
+        src/inventory/in_memory_inventory_storage.cpp
+        src/inventory/mysql_inventory_storage.cpp
         src/chat/chat.cpp
         src/guild/guild.cpp
     )
@@ -135,7 +157,9 @@ if(BUILD_TESTING)
         tests/guild_chat_tests.cpp
         src/chat/chat.cpp
         src/guild/guild.cpp
+        src/inventory/cached_inventory_storage.cpp
         src/inventory/in_memory_inventory_storage.cpp
+        src/inventory/mysql_inventory_storage.cpp
         src/match/match_queue.cpp
         src/net/auth.cpp
         src/net/codec.cpp
@@ -173,6 +197,11 @@ if(BUILD_TESTING)
             ${PROJECT_SOURCE_DIR}/include
             ${PROJECT_SOURCE_DIR}/src
     )
+    target_include_directories(dungeonhub_inventory_cached_tests
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/include
+            ${PROJECT_SOURCE_DIR}/src
+    )
     target_include_directories(dungeonhub_reward_inventory_tests
         PRIVATE
             ${PROJECT_SOURCE_DIR}/include
@@ -188,6 +217,10 @@ if(BUILD_TESTING)
     add_test(NAME dungeonhub_dungeon_tests COMMAND dungeonhub_dungeon_tests)
     add_test(NAME dungeonhub_combat_reward_tests COMMAND dungeonhub_combat_reward_tests)
     add_test(NAME dungeonhub_inventory_tests COMMAND dungeonhub_inventory_tests)
+    add_test(NAME dungeonhub_inventory_cached_tests COMMAND dungeonhub_inventory_cached_tests)
+    add_test(NAME dungeonhub_query_plan_tests
+        COMMAND ${PROJECT_SOURCE_DIR}/scripts/verify_query_plans.sh
+    )
     add_test(NAME dungeonhub_reward_inventory_tests COMMAND dungeonhub_reward_inventory_tests)
     add_test(NAME dungeonhub_guild_chat_tests COMMAND dungeonhub_guild_chat_tests)
     add_test(NAME dungeonhub_runs COMMAND dungeonhub)

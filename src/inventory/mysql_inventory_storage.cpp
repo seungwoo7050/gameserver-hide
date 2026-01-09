@@ -1,10 +1,10 @@
-#include "inventory/in_memory_inventory_storage.h"
+#include "inventory/mysql_inventory_storage.h"
 
 #include <chrono>
 
 namespace inventory {
 
-Transaction InMemoryInventoryStorage::beginTransaction() {
+Transaction MySqlInventoryStorage::beginTransaction() {
     std::scoped_lock lock(mutex_);
     Transaction transaction{next_transaction_id_++};
     active_transactions_.insert(transaction.transaction_id);
@@ -16,13 +16,13 @@ Transaction InMemoryInventoryStorage::beginTransaction() {
     return transaction;
 }
 
-void InMemoryInventoryStorage::commitTransaction(const Transaction &transaction) {
+void MySqlInventoryStorage::commitTransaction(const Transaction &transaction) {
     std::scoped_lock lock(mutex_);
     active_transactions_.erase(transaction.transaction_id);
     transaction_snapshots_.erase(transaction.transaction_id);
 }
 
-void InMemoryInventoryStorage::rollbackTransaction(const Transaction &transaction) {
+void MySqlInventoryStorage::rollbackTransaction(const Transaction &transaction) {
     std::scoped_lock lock(mutex_);
     auto snapshot_it = transaction_snapshots_.find(transaction.transaction_id);
     if (snapshot_it != transaction_snapshots_.end()) {
@@ -34,7 +34,7 @@ void InMemoryInventoryStorage::rollbackTransaction(const Transaction &transactio
     active_transactions_.erase(transaction.transaction_id);
 }
 
-std::optional<InventoryState> InMemoryInventoryStorage::loadInventory(InventoryId inventory_id) const {
+std::optional<InventoryState> MySqlInventoryStorage::loadInventory(InventoryId inventory_id) const {
     std::scoped_lock lock(mutex_);
     auto it = inventories_.find(inventory_id);
     if (it == inventories_.end()) {
@@ -43,15 +43,15 @@ std::optional<InventoryState> InMemoryInventoryStorage::loadInventory(InventoryI
     return it->second;
 }
 
-void InMemoryInventoryStorage::saveInventory(const InventoryState &state) {
+void MySqlInventoryStorage::saveInventory(const InventoryState &state) {
     std::scoped_lock lock(mutex_);
     inventories_[state.inventory_id] = state;
 }
 
-bool InMemoryInventoryStorage::addItem(InventoryId inventory_id,
-                                       ItemId item_id,
-                                       Quantity quantity,
-                                       std::string reason) {
+bool MySqlInventoryStorage::addItem(InventoryId inventory_id,
+                                    ItemId item_id,
+                                    Quantity quantity,
+                                    std::string reason) {
     std::scoped_lock lock(mutex_);
     if (quantity == 0) {
         return false;
@@ -63,10 +63,10 @@ bool InMemoryInventoryStorage::addItem(InventoryId inventory_id,
     return true;
 }
 
-bool InMemoryInventoryStorage::removeItem(InventoryId inventory_id,
-                                          ItemId item_id,
-                                          Quantity quantity,
-                                          std::string reason) {
+bool MySqlInventoryStorage::removeItem(InventoryId inventory_id,
+                                       ItemId item_id,
+                                       Quantity quantity,
+                                       std::string reason) {
     std::scoped_lock lock(mutex_);
     if (quantity == 0) {
         return false;
@@ -86,10 +86,10 @@ bool InMemoryInventoryStorage::removeItem(InventoryId inventory_id,
     return true;
 }
 
-void InMemoryInventoryStorage::setItem(InventoryId inventory_id,
-                                       ItemId item_id,
-                                       Quantity quantity,
-                                       std::string reason) {
+void MySqlInventoryStorage::setItem(InventoryId inventory_id,
+                                    ItemId item_id,
+                                    Quantity quantity,
+                                    std::string reason) {
     std::scoped_lock lock(mutex_);
     auto &inventory = getOrCreateInventory(inventory_id);
     if (quantity == 0) {
@@ -100,7 +100,7 @@ void InMemoryInventoryStorage::setItem(InventoryId inventory_id,
     recordChange(inventory_id, item_id, quantity, ChangeType::Set, std::move(reason));
 }
 
-std::vector<InventoryChange> InMemoryInventoryStorage::changeLog(InventoryId inventory_id) const {
+std::vector<InventoryChange> MySqlInventoryStorage::changeLog(InventoryId inventory_id) const {
     std::scoped_lock lock(mutex_);
     auto it = change_log_.find(inventory_id);
     if (it == change_log_.end()) {
@@ -109,16 +109,16 @@ std::vector<InventoryChange> InMemoryInventoryStorage::changeLog(InventoryId inv
     return it->second;
 }
 
-InventoryState &InMemoryInventoryStorage::getOrCreateInventory(InventoryId inventory_id) {
+InventoryState &MySqlInventoryStorage::getOrCreateInventory(InventoryId inventory_id) {
     auto [it, inserted] = inventories_.try_emplace(inventory_id, InventoryState{inventory_id});
     return it->second;
 }
 
-void InMemoryInventoryStorage::recordChange(InventoryId inventory_id,
-                                            ItemId item_id,
-                                            Quantity quantity,
-                                            ChangeType type,
-                                            std::string reason) {
+void MySqlInventoryStorage::recordChange(InventoryId inventory_id,
+                                         ItemId item_id,
+                                         Quantity quantity,
+                                         ChangeType type,
+                                         std::string reason) {
     InventoryChange change;
     change.change_id = next_change_id_++;
     change.inventory_id = inventory_id;

@@ -105,6 +105,27 @@ sequenceDiagram
 - **guilds**: `guild_id`, `name`, `leader_id`
 - **guild_members**: `guild_id`, `char_id`, `role`
 
+### 4.1 인덱싱/쿼리 예시
+- **inventory** 복합 인덱스
+  ```sql
+  CREATE INDEX idx_inventory_char_item
+    ON inventory (char_id, item_id);
+  ```
+  - 캐릭터 기준 인벤토리 조회 및 아이템 단건 조회를 모두 커버
+- **match_history** 조회 최적화
+  ```sql
+  CREATE INDEX idx_match_history_char_time
+    ON match_history (char_id, time DESC);
+  ```
+  ```sql
+  SELECT match_id, instance_id, result, time
+    FROM match_history
+   WHERE char_id = ?
+   ORDER BY time DESC
+   LIMIT 20;
+  ```
+  - 캐릭터별 최근 매치 기록 조회에 최적화
+
 ## 5. 프로토콜 요약
 - **LoginReq/LoginRes**: 토큰 발급 및 세션 생성
 - **PartyCreateReq/PartyInviteReq/PartyJoinRes**: 파티 생성 및 초대
