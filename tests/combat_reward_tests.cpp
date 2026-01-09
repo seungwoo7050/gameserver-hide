@@ -47,6 +47,23 @@ int main() {
     }
 
     {
+        combat::Dispatcher dispatcher;
+        bool damage_seen = false;
+        dispatcher.setDamageHandler([&damage_seen](const combat::DamageEvent &) {
+            damage_seen = true;
+        });
+        dispatcher.setSkillValidator([](const combat::SkillEvent &event) {
+            return event.base_damage <= 100;
+        });
+
+        combat::SkillEvent invalid{1, 2, 3, 150};
+        auto rejected = dispatcher.processSkillEvent(invalid);
+        assert(rejected.amount == 0);
+        assert(!damage_seen);
+        assert(dispatcher.damageHistory().empty());
+    }
+
+    {
         reward::Inventory inventory(5);
         reward::RewardService service;
         std::vector<reward::RewardItem> items = {
@@ -84,6 +101,17 @@ int main() {
         assert(service.grantRewards(inventory, 77, rewards));
         assert(inventory.grantStatus(77) == reward::GrantStatus::Completed);
         assert(inventory.totalQuantity() <= 3);
+    }
+
+    {
+        reward::RewardService service;
+        std::vector<reward::RewardItem> items = {
+            {1001, 2},
+            {2002, 3}
+        };
+        assert(service.validateClientRewards(items, 3, 10));
+        assert(!service.validateClientRewards(items, 1, 10));
+        assert(!service.validateClientRewards(items, 3, 4));
     }
 
     return 0;

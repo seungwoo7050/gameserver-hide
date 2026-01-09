@@ -14,6 +14,7 @@ add_executable(dungeonhub
     src/chat/chat.cpp
     src/main.cpp
     src/combat/dispatcher.cpp
+    src/dungeon/authoritative_validation.cpp
     src/dungeon/instance_manager.cpp
     src/guild/guild.cpp
     src/inventory/cached_inventory_storage.cpp
@@ -24,6 +25,7 @@ add_executable(dungeonhub
     src/net/codec.cpp
     src/net/io_layer.cpp
     src/net/protocol.cpp
+    src/net/security.cpp
     src/net/server.cpp
     src/net/session.cpp
     src/net/worker_pool.cpp
@@ -45,6 +47,7 @@ add_executable(dungeonhub_load_sim
     src/admin/logging.cpp
     src/chat/chat.cpp
     src/combat/dispatcher.cpp
+    src/dungeon/authoritative_validation.cpp
     src/dungeon/instance_manager.cpp
     src/guild/guild.cpp
     src/inventory/cached_inventory_storage.cpp
@@ -55,6 +58,7 @@ add_executable(dungeonhub_load_sim
     src/net/codec.cpp
     src/net/io_layer.cpp
     src/net/protocol.cpp
+    src/net/security.cpp
     src/net/server.cpp
     src/net/session.cpp
     src/net/worker_pool.cpp
@@ -77,6 +81,7 @@ if(BUILD_TESTING)
         tests/net_tests.cpp
         src/chat/chat.cpp
         src/combat/dispatcher.cpp
+        src/dungeon/authoritative_validation.cpp
         src/dungeon/instance_manager.cpp
         src/guild/guild.cpp
         src/inventory/cached_inventory_storage.cpp
@@ -87,6 +92,7 @@ if(BUILD_TESTING)
         src/net/codec.cpp
         src/net/io_layer.cpp
         src/net/protocol.cpp
+        src/net/security.cpp
         src/net/server.cpp
         src/net/session.cpp
         src/net/worker_pool.cpp
@@ -99,6 +105,7 @@ if(BUILD_TESTING)
         tests/party_match_tests.cpp
         src/chat/chat.cpp
         src/combat/dispatcher.cpp
+        src/dungeon/authoritative_validation.cpp
         src/dungeon/instance_manager.cpp
         src/guild/guild.cpp
         src/inventory/cached_inventory_storage.cpp
@@ -114,6 +121,7 @@ if(BUILD_TESTING)
         tests/dungeon_instance_tests.cpp
         src/chat/chat.cpp
         src/combat/dispatcher.cpp
+        src/dungeon/authoritative_validation.cpp
         src/dungeon/instance_manager.cpp
         src/inventory/cached_inventory_storage.cpp
         src/inventory/in_memory_inventory_storage.cpp
@@ -171,6 +179,7 @@ if(BUILD_TESTING)
         src/net/codec.cpp
         src/net/io_layer.cpp
         src/net/protocol.cpp
+        src/net/security.cpp
         src/net/server.cpp
         src/net/session.cpp
         src/net/worker_pool.cpp

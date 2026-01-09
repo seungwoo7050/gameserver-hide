@@ -5,6 +5,7 @@
 #include "net/codec.h"
 #include "net/io_layer.h"
 #include "net/protocol.h"
+#include "net/security.h"
 #include "net/server.h"
 #include "net/session.h"
 #include "net/worker_pool.h"
@@ -380,6 +381,71 @@ int main() {
         assert(net::decodeDungeonResultResponse(duplicate_payload_out, duplicate_out));
         assert(!duplicate_out.success);
         assert(duplicate_out.code == "REWARD_DUPLICATE");
+    }
+
+    {
+        net::SecurityPolicy policy;
+        policy.require_hmac = true;
+        policy.enable_replay_protection = true;
+        policy.hmac_key = "secure-key";
+        net::Server server(nullptr, policy);
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto login_payload = net::encodeLoginRequest(login);
+        auto secured = net::wrapSecurePayload(1, 9001, policy.hmac_key, login_payload);
+        net::FrameHeader header{static_cast<std::uint32_t>(secured.size()),
+                                static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                net::kMinProtocolVersion};
+        auto response_frame = server.handlePacket(*session, header, secured, now);
+        assert(response_frame.has_value());
+
+        CoutCapture capture;
+        auto replay_response = server.handlePacket(*session, header, secured, now);
+        assert(!replay_response.has_value());
+        assert(capture.str().find("\"event\":\"security_violation\"") != std::string::npos);
+    }
+
+    {
+        net::SecurityPolicy policy;
+        policy.require_hmac = true;
+        policy.hmac_key = "secure-key";
+        net::Server server(nullptr, policy);
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto login_payload = net::encodeLoginRequest(login);
+        auto secured = net::wrapSecurePayload(1, 123, "wrong-key", login_payload);
+        net::FrameHeader header{static_cast<std::uint32_t>(secured.size()),
+                                static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                net::kMinProtocolVersion};
+        CoutCapture capture;
+        auto response_frame = server.handlePacket(*session, header, secured, now);
+        assert(!response_frame.has_value());
+        assert(capture.str().find("Signature verification failed") != std::string::npos);
+    }
+
+    {
+        net::SecurityPolicy policy;
+        policy.require_tls = true;
+        net::Server server(nullptr, policy);
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        auto session = server.createSession(config, now);
+        net::LoginRequest login{"user1", "letmein"};
+        auto login_payload = net::encodeLoginRequest(login);
+        net::FrameHeader header{static_cast<std::uint32_t>(login_payload.size()),
+                                static_cast<std::uint16_t>(net::PacketType::LoginReq),
+                                net::kMinProtocolVersion};
+        auto response_frame = server.handlePacket(*session, header, login_payload, now);
+        assert(!response_frame.has_value());
+
+        session->markTlsEstablished(std::chrono::milliseconds{12});
+        auto tls_response = server.handlePacket(*session, header, login_payload, now);
+        assert(tls_response.has_value());
+        assert(session->tlsHandshakeTime() == std::chrono::milliseconds{12});
     }
 
     {

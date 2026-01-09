@@ -34,6 +34,28 @@ bool RewardService::grantFromTable(Inventory &inventory, GrantId grant_id, std::
     return grantRewards(inventory, grant_id, rewards);
 }
 
+bool RewardService::validateClientRewards(const std::vector<RewardItem> &items,
+                                          std::size_t max_items,
+                                          std::uint32_t max_total_count) const {
+    if (items.size() > max_items) {
+        return false;
+    }
+    std::uint32_t total = 0;
+    for (const auto &item : items) {
+        if (item.quantity == 0) {
+            return false;
+        }
+        if (item.quantity > max_total_count) {
+            return false;
+        }
+        if (total > max_total_count - item.quantity) {
+            return false;
+        }
+        total += item.quantity;
+    }
+    return total <= max_total_count;
+}
+
 const DropTable &RewardService::dropTable() const {
     return drop_table_;
 }

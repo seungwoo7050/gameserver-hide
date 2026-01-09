@@ -152,6 +152,33 @@ std::uint64_t Session::lastSeq() const {
     return last_seq_;
 }
 
+bool Session::recordNonce(std::uint64_t nonce) {
+    if (nonce_cache_.find(nonce) != nonce_cache_.end()) {
+        return false;
+    }
+    nonce_cache_.insert(nonce);
+    nonce_order_.push_back(nonce);
+    while (nonce_order_.size() > config_.nonce_cache_limit) {
+        auto oldest = nonce_order_.front();
+        nonce_order_.pop_front();
+        nonce_cache_.erase(oldest);
+    }
+    return true;
+}
+
+bool Session::tlsEstablished() const {
+    return tls_established_;
+}
+
+void Session::markTlsEstablished(std::chrono::milliseconds handshake_time) {
+    tls_established_ = true;
+    tls_handshake_time_ = handshake_time;
+}
+
+std::chrono::milliseconds Session::tlsHandshakeTime() const {
+    return tls_handshake_time_;
+}
+
 bool Session::dequeueSend(std::vector<std::uint8_t> &payload) {
     if (send_queue_.empty()) {
         return false;

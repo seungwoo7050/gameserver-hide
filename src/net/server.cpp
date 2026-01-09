@@ -14,9 +14,11 @@
 
 namespace net {
 
-Server::Server(std::shared_ptr<inventory::InventoryStorage> inventory_storage)
+Server::Server(std::shared_ptr<inventory::InventoryStorage> inventory_storage,
+               SecurityPolicy security_policy)
     : inventory_storage_(std::move(inventory_storage)),
-      started_at_(std::chrono::steady_clock::now()) {
+      started_at_(std::chrono::steady_clock::now()),
+      security_policy_(std::move(security_policy)) {
     if (!inventory_storage_) {
         inventory_storage_ = std::make_shared<inventory::CachedInventoryStorage>(
             std::make_unique<inventory::MySqlInventoryStorage>(),
@@ -184,6 +186,15 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
     session.onReceive(now);
     session.setProtocolVersion(header.version);
 
+    if (security_policy_.require_tls && !session.tlsEstablished()) {
+        metrics_.error_total += 1;
+        admin::LogFields fields = received_fields;
+        fields.reason = "TLS required";
+        logger_.log("warn", "security_violation",
+                    "Rejected non-TLS session packet", fields);
+        return std::nullopt;
+    }
+
     if (header.version < kMinProtocolVersion || header.version > kMaxProtocolVersion) {
         VersionReject reject;
         reject.min_version = kMinProtocolVersion;
@@ -205,10 +216,55 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
                              encoded);
     }
 
+    std::vector<std::uint8_t> decoded_payload = payload;
+    if (security_policy_.require_hmac || security_policy_.enable_replay_protection) {
+        SecurityHeader security_header{};
+        std::vector<std::uint8_t> inner_payload;
+        if (!unwrapSecurePayload(payload, security_header, inner_payload)) {
+            metrics_.error_total += 1;
+            admin::LogFields fields = received_fields;
+            fields.reason = "Malformed security header";
+            logger_.log("warn", "security_violation",
+                        "Malformed security header", fields);
+            return std::nullopt;
+        }
+        if (security_policy_.require_hmac &&
+            !verifySignature(security_policy_.hmac_key, security_header, inner_payload)) {
+            metrics_.error_total += 1;
+            admin::LogFields fields = received_fields;
+            fields.reason = "Invalid signature";
+            logger_.log("warn", "security_violation",
+                        "Signature verification failed", fields);
+            return std::nullopt;
+        }
+        if (security_policy_.enable_replay_protection) {
+            if (security_header.seq <= session.lastSeq()) {
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = "Replay sequence detected";
+                logger_.log("warn", "security_violation",
+                            "Replay sequence detected", fields);
+                return std::nullopt;
+            }
+            if (!session.recordNonce(security_header.nonce)) {
+                metrics_.error_total += 1;
+                admin::LogFields fields = received_fields;
+                fields.reason = "Replay nonce detected";
+                logger_.log("warn", "security_violation",
+                            "Replay nonce detected", fields);
+                return std::nullopt;
+            }
+            session.setLastSeq(security_header.seq);
+        }
+        decoded_payload = std::move(inner_payload);
+    }
+
+    // Validation hook: after each decode* call below, verify HMAC/signature and
+    // replay protection fields (nonce/seq) before executing game logic.
     switch (static_cast<PacketType>(header.type)) {
         case PacketType::LoginReq: {
             LoginRequest request;
-            if (!decodeLoginRequest(payload, request)) {
+            if (!decodeLoginRequest(decoded_payload, request)) {
                 LoginResponse response;
                 response.accepted = false;
                 response.message = "Malformed login payload";
@@ -286,7 +342,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
         }
         case PacketType::LogoutReq: {
             LogoutRequest request;
-            if (!decodeLogoutRequest(payload, request)) {
+            if (!decodeLogoutRequest(decoded_payload, request)) {
                 LogoutResponse response;
                 response.success = false;
                 response.message = "Malformed logout payload";
@@ -314,7 +370,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
         }
         case PacketType::SessionReconnectReq: {
             SessionReconnectRequest request;
-            if (!decodeSessionReconnectRequest(payload, request)) {
+            if (!decodeSessionReconnectRequest(decoded_payload, request)) {
                 SessionReconnectResponse response;
                 response.success = false;
                 response.message = "Malformed reconnect payload";
@@ -408,7 +464,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
         }
         case PacketType::MatchReq: {
             MatchRequest request;
-            if (!decodeMatchRequest(payload, request)) {
+            if (!decodeMatchRequest(decoded_payload, request)) {
                 MatchFoundNotify response;
                 response.success = false;
                 response.code = "MALFORMED";
@@ -623,7 +679,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
         }
         case PacketType::DungeonEnterReq: {
             DungeonEnterRequest request;
-            if (!decodeDungeonEnterRequest(payload, request)) {
+            if (!decodeDungeonEnterRequest(decoded_payload, request)) {
                 DungeonEnterResponse response;
                 response.success = false;
                 response.code = "MALFORMED";
@@ -768,7 +824,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
         }
         case PacketType::DungeonResultNotify: {
             DungeonResultNotify request;
-            if (!decodeDungeonResultNotify(payload, request)) {
+            if (!decodeDungeonResultNotify(decoded_payload, request)) {
                 DungeonResultResponse response;
                 response.success = false;
                 response.code = "MALFORMED";
@@ -975,7 +1031,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
         }
         case PacketType::InventoryUpdateNotify: {
             InventoryUpdateNotify request;
-            if (!decodeInventoryUpdateNotify(payload, request)) {
+            if (!decodeInventoryUpdateNotify(decoded_payload, request)) {
                 InventoryUpdateResponse response;
                 response.success = false;
                 response.code = "MALFORMED";
@@ -1050,7 +1106,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
         }
         case PacketType::GuildCreateReq: {
             GuildCreateRequest request;
-            if (!decodeGuildCreateRequest(payload, request)) {
+            if (!decodeGuildCreateRequest(decoded_payload, request)) {
                 GuildCreateResponse response;
                 response.success = false;
                 response.message = "Malformed guild create payload";
@@ -1107,7 +1163,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
         }
         case PacketType::GuildJoinReq: {
             GuildJoinRequest request;
-            if (!decodeGuildJoinRequest(payload, request)) {
+            if (!decodeGuildJoinRequest(decoded_payload, request)) {
                 GuildJoinResponse response;
                 response.success = false;
                 response.message = "Malformed guild join payload";
@@ -1156,7 +1212,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
         }
         case PacketType::GuildLeaveReq: {
             GuildLeaveRequest request;
-            if (!decodeGuildLeaveRequest(payload, request)) {
+            if (!decodeGuildLeaveRequest(decoded_payload, request)) {
                 GuildLeaveResponse response;
                 response.success = false;
                 response.message = "Malformed guild leave payload";
@@ -1223,7 +1279,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
         }
         case PacketType::ChatSendReq: {
             ChatSendRequest request;
-            if (!decodeChatSendRequest(payload, request)) {
+            if (!decodeChatSendRequest(decoded_payload, request)) {
                 ChatSendResponse response;
                 response.success = false;
                 response.message = "Malformed chat payload";

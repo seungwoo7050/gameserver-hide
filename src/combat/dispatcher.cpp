@@ -2,6 +2,10 @@
 
 namespace combat {
 
+void Dispatcher::setSkillValidator(SkillValidator validator) {
+    skill_validator_ = std::move(validator);
+}
+
 void Dispatcher::setSkillHandler(SkillHandler handler) {
     skill_handler_ = std::move(handler);
 }
@@ -11,6 +15,11 @@ void Dispatcher::setDamageHandler(DamageHandler handler) {
 }
 
 DamageEvent Dispatcher::processSkillEvent(const SkillEvent &event) {
+    // Validation hook: dungeon event processing should confirm skill timing,
+    // range, and authority before deriving damage.
+    if (skill_validator_ && !skill_validator_(event)) {
+        return DamageEvent{};
+    }
     std::optional<DamageEvent> derived;
     if (skill_handler_) {
         derived = skill_handler_(event);
