@@ -8,9 +8,20 @@
 #include <sstream>
 #include <vector>
 
+#include "inventory/cached_inventory_storage.h"
+#include "inventory/in_memory_inventory_storage.h"
+#include "inventory/mysql_inventory_storage.h"
+
 namespace net {
 
-Server::Server() : started_at_(std::chrono::steady_clock::now()) {
+Server::Server(std::shared_ptr<inventory::InventoryStorage> inventory_storage)
+    : inventory_storage_(std::move(inventory_storage)),
+      started_at_(std::chrono::steady_clock::now()) {
+    if (!inventory_storage_) {
+        inventory_storage_ = std::make_shared<inventory::CachedInventoryStorage>(
+            std::make_unique<inventory::MySqlInventoryStorage>(),
+            std::make_unique<inventory::InMemoryInventoryStorage>());
+    }
     logger_.log("info", "server_started", "Server started");
     guild_service_.setEventSink([this](SessionId session_id,
                                        const guild::GuildEvent &event) {
@@ -918,18 +929,18 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
             }
 
             bool inventory_ok = true;
-            auto inventory_tx = inventory_storage_.beginTransaction();
+            auto inventory_tx = inventory_storage_->beginTransaction();
             for (const auto &item : request.rewards) {
-                if (!inventory_storage_.addItem(char_it->second,
-                                                item.item_id,
-                                                item.count,
-                                                "dungeon_reward")) {
+                if (!inventory_storage_->addItem(char_it->second,
+                                                 item.item_id,
+                                                 item.count,
+                                                 "dungeon_reward")) {
                     inventory_ok = false;
                     break;
                 }
             }
             if (!inventory_ok) {
-                inventory_storage_.rollbackTransaction(inventory_tx);
+                inventory_storage_->rollbackTransaction(inventory_tx);
                 DungeonResultResponse response;
                 response.success = false;
                 response.code = "INVENTORY_FAILED";
@@ -945,7 +956,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
                                      header.version,
                                      encoded);
             }
-            inventory_storage_.commitTransaction(inventory_tx);
+            inventory_storage_->commitTransaction(inventory_tx);
 
             DungeonResultResponse response;
             response.success = true;
@@ -1000,20 +1011,20 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
             }
 
             bool inventory_ok = true;
-            auto inventory_tx = inventory_storage_.beginTransaction();
+            auto inventory_tx = inventory_storage_->beginTransaction();
             for (const auto &item : request.items) {
-                if (!inventory_storage_.addItem(request.char_id,
-                                                item.item_id,
-                                                item.count,
-                                                "inventory_update")) {
+                if (!inventory_storage_->addItem(request.char_id,
+                                                 item.item_id,
+                                                 item.count,
+                                                 "inventory_update")) {
                     inventory_ok = false;
                     break;
                 }
             }
             if (!inventory_ok) {
-                inventory_storage_.rollbackTransaction(inventory_tx);
+                inventory_storage_->rollbackTransaction(inventory_tx);
             } else {
-                inventory_storage_.commitTransaction(inventory_tx);
+                inventory_storage_->commitTransaction(inventory_tx);
             }
 
             InventoryUpdateResponse response;
@@ -1022,7 +1033,7 @@ std::optional<std::vector<std::uint8_t>> Server::handlePacket(
             response.message =
                 inventory_ok ? "Inventory updated" : "Failed to update inventory";
             response.inventory_version =
-                inventory_storage_.changeLog(request.char_id).size();
+                inventory_storage_->changeLog(request.char_id).size();
             auto encoded = encodeInventoryUpdateResponse(response);
             admin::LogFields fields = received_fields;
             fields.user_id = user->user_id;

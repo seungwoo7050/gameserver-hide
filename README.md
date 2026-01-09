@@ -63,4 +63,5 @@ cmake --build build --target dungeonhub_load_sim
 ## Docs
 - [Architecture draft](docs/architecture.md)
 - [Protocol spec](docs/protocol.md)
+- [Storage & persistence](docs/storage.md)
 - [Contributing guide](CONTRIBUTING.md)

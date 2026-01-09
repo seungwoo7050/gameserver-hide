@@ -1,15 +1,15 @@
 #pragma once
 
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
-#include <mutex>
 #include <vector>
 
 #include "inventory/inventory_storage.h"
 
 namespace inventory {
 
-class InMemoryInventoryStorage : public InventoryStorage {
+class MySqlInventoryStorage : public InventoryStorage {
 public:
     Transaction beginTransaction() override;
     void commitTransaction(const Transaction &transaction) override;

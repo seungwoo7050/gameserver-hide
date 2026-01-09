@@ -1,16 +1,17 @@
 #pragma once
 
+#include <memory>
 #include <unordered_map>
-#include <unordered_set>
-#include <mutex>
-#include <vector>
 
 #include "inventory/inventory_storage.h"
 
 namespace inventory {
 
-class InMemoryInventoryStorage : public InventoryStorage {
+class CachedInventoryStorage : public InventoryStorage {
 public:
+    CachedInventoryStorage(std::unique_ptr<InventoryStorage> persistent,
+                           std::unique_ptr<InventoryStorage> cache);
+
     Transaction beginTransaction() override;
     void commitTransaction(const Transaction &transaction) override;
     void rollbackTransaction(const Transaction &transaction) override;
@@ -34,26 +35,17 @@ public:
     std::vector<InventoryChange> changeLog(InventoryId inventory_id) const override;
 
 private:
-    InventoryState &getOrCreateInventory(InventoryId inventory_id);
-    void recordChange(InventoryId inventory_id,
-                      ItemId item_id,
-                      Quantity quantity,
-                      ChangeType type,
-                      std::string reason);
-
-    struct TransactionSnapshot {
-        std::unordered_map<InventoryId, InventoryState> inventories;
-        std::unordered_map<InventoryId, std::vector<InventoryChange>> change_log;
-        ChangeId next_change_id{1};
+    struct TransactionPair {
+        Transaction persistent;
+        Transaction cache;
     };
 
+    void refreshCache(InventoryId inventory_id) const;
+
     TransactionId next_transaction_id_{1};
-    ChangeId next_change_id_{1};
-    std::unordered_set<TransactionId> active_transactions_;
-    std::unordered_map<TransactionId, TransactionSnapshot> transaction_snapshots_;
-    std::unordered_map<InventoryId, InventoryState> inventories_;
-    std::unordered_map<InventoryId, std::vector<InventoryChange>> change_log_;
-    mutable std::mutex mutex_;
+    std::unordered_map<TransactionId, TransactionPair> transactions_;
+    std::unique_ptr<InventoryStorage> persistent_;
+    std::unique_ptr<InventoryStorage> cache_;
 };
 
 }  // namespace inventory
