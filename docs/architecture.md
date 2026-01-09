@@ -17,6 +17,7 @@
   - 길드/채팅 채널 관리, 공지
 - **Admin/GM API**
   - 강제 접속 종료, 던전 종료, 모니터링
+  - 모니터링 항목: 세션 수, 매칭 큐 길이, 에러율, RTT(p95/p99), 패킷/바이트 처리량, 디스패치 지연, 인스턴스 상태 분포
 
 ## 1.1 네트워크 I/O 모델 및 스레딩
 - **대상 플랫폼**
@@ -165,3 +166,49 @@ sequenceDiagram
 - **AdminKickReq/AdminRoomCloseReq**: 운영툴 API
 
 > 상세 스펙은 `docs/protocol.md`를 참고한다.
+
+## 8. 운영/모니터링 메트릭 설계
+### 8.1 Metrics 구조체 기반 계측 범위
+`src/net/server.h`의 `Metrics`는 기본 트래픽 지표를 제공한다.
+- `packets_total`: 수신/처리 패킷 누적 카운트
+- `bytes_total`: 처리된 바이트 누적 카운트
+- `error_total`: 프로토콜/검증/처리 오류 누적 카운트
+
+추가로 서버가 제공 가능한 파생 지표:
+- `session_count`: `Server::sessionCount()`로 게이지 제공
+- `uptime_seconds`: `Server::startTime()` 기준 업타임
+- `match_queue_length`: `match::MatchQueue` 대기열 길이
+- `rtt_ms`: 세션 heartbeat/응답 시간에서 p50/p95/p99 계산
+
+### 8.2 Prometheus Exporter (권장)
+- **방식**: `/metrics` HTTP 엔드포인트로 표준 Prometheus 포맷 노출.
+- **타입 매핑**
+  - `packets_total`, `bytes_total`, `error_total` → `counter`
+  - `session_count`, `match_queue_length` → `gauge`
+  - `rtt_ms_bucket` → `histogram` 또는 `summary`
+- **샘플 네이밍**
+  - `dungeonhub_packets_total`
+  - `dungeonhub_bytes_total`
+  - `dungeonhub_errors_total`
+  - `dungeonhub_session_count`
+  - `dungeonhub_match_queue_length`
+  - `dungeonhub_rtt_ms_bucket`
+- **라벨**
+  - `server_role`(gateway/party/dungeon), `region`, `build`
+
+### 8.3 주기적 로그 집계 (대안)
+- **방식**: 10초~60초 주기로 `Metrics` 스냅샷을 구조화 로그로 기록.
+- **예시 필드**
+  - `ts`, `server_role`, `packets_total`, `bytes_total`, `error_total`, `session_count`, `match_queue_length`, `rtt_p95_ms`
+  - 요청/이벤트 로그에는 `trace_id`, `session_id`, `instance_id`를 포함해 상관관계 추적을 보장한다.
+- **집계 파이프라인**
+  1. 파일/STDOUT 로그 수집 (Fluent Bit/Vector)
+  2. 로그 파서로 메트릭 추출
+  3. 시계열 저장소 (Loki/ClickHouse 등) 적재 후 대시보드 연결
+
+### 8.4 운영 검증 체크리스트
+- **메트릭 노출**: 세션 수, 에러율, RTT, 매칭 큐 길이 등이 수집/노출되는지 확인.
+- **대시보드 시각화**: Grafana 패널에서 실시간 지표가 업데이트되는지 확인.
+- **알림 정책**: 에러율/지연 임계치 초과 시 알림이 발송되는지 확인.
+- **로그 상관관계**: `trace_id` 기반으로 요청 흐름 추적이 가능한지 확인.
+- **장애 복구 대응**: 서비스 재시작 후 지표/로그가 정상 복구되는지 확인.
