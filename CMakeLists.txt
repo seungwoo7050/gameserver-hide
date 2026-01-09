@@ -22,9 +22,11 @@ add_executable(dungeonhub
     src/match/match_queue.cpp
     src/net/auth.cpp
     src/net/codec.cpp
+    src/net/io_layer.cpp
     src/net/protocol.cpp
     src/net/server.cpp
     src/net/session.cpp
+    src/net/worker_pool.cpp
     src/party/party.cpp
     src/reward/drop_table.cpp
     src/reward/inventory.cpp
@@ -51,9 +53,11 @@ add_executable(dungeonhub_load_sim
     src/match/match_queue.cpp
     src/net/auth.cpp
     src/net/codec.cpp
+    src/net/io_layer.cpp
     src/net/protocol.cpp
     src/net/server.cpp
     src/net/session.cpp
+    src/net/worker_pool.cpp
     src/party/party.cpp
     src/reward/drop_table.cpp
     src/reward/inventory.cpp
@@ -81,9 +85,11 @@ if(BUILD_TESTING)
         src/match/match_queue.cpp
         src/net/auth.cpp
         src/net/codec.cpp
+        src/net/io_layer.cpp
         src/net/protocol.cpp
         src/net/server.cpp
         src/net/session.cpp
+        src/net/worker_pool.cpp
         src/party/party.cpp
         src/reward/drop_table.cpp
         src/reward/inventory.cpp
@@ -163,9 +169,11 @@ if(BUILD_TESTING)
         src/match/match_queue.cpp
         src/net/auth.cpp
         src/net/codec.cpp
+        src/net/io_layer.cpp
         src/net/protocol.cpp
         src/net/server.cpp
         src/net/session.cpp
+        src/net/worker_pool.cpp
         src/dungeon/instance_manager.cpp
         src/party/party.cpp
         src/reward/drop_table.cpp

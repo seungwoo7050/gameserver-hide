@@ -3,16 +3,22 @@
 #include "dungeon/instance_manager.h"
 #include "net/auth.h"
 #include "net/codec.h"
+#include "net/io_layer.h"
 #include "net/protocol.h"
 #include "net/server.h"
 #include "net/session.h"
+#include "net/worker_pool.h"
 
 #include <cassert>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -637,6 +643,147 @@ int main() {
         assert(admin_service.forceTerminateSession(session->id(), "maintenance"));
         assert(server.sessionCount() == 0);
         assert(!admin_service.forceTerminateSession(999, "missing"));
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        std::vector<std::shared_ptr<net::Session>> sessions;
+        sessions.reserve(128);
+        for (int i = 0; i < 100; ++i) {
+            sessions.push_back(server.createSession(config, now));
+        }
+        assert(server.sessionCount() == sessions.size());
+        for (const auto &session : sessions) {
+            assert(server.findSession(session->id()) != nullptr);
+        }
+    }
+
+    {
+        net::Server server;
+        net::SessionConfig config;
+        auto now = steady_clock::now();
+        net::IoEventLoop loop;
+        std::atomic<int> dispatched{0};
+        std::atomic<int> wrote{0};
+        std::unordered_map<std::uint64_t, std::shared_ptr<net::Session>> sessions;
+        std::mutex sessions_mutex;
+
+        net::PacketDispatcher dispatcher(
+            2,
+            [&](const net::PacketJob &job) {
+                std::shared_ptr<net::Session> session;
+                {
+                    std::lock_guard<std::mutex> lock(sessions_mutex);
+                    session = sessions.at(job.connection_id);
+                }
+                auto response =
+                    server.handlePacket(*session, job.header, job.payload, job.received_at);
+                if (response.has_value()) {
+                    session->enqueueSend(*response, job.received_at);
+                    dispatched += 1;
+                }
+            });
+
+        net::PacketPipeline pipeline(
+            [&](std::uint64_t connection_id,
+                const net::FrameHeader &header,
+                const std::vector<std::uint8_t> &payload,
+                std::chrono::steady_clock::time_point received_at) {
+                assert(header.length == payload.size());
+                net::PacketJob job;
+                job.connection_id = connection_id;
+                job.header = header;
+                job.payload = payload;
+                job.received_at = received_at;
+                dispatcher.enqueue(std::move(job));
+            });
+
+        loop.setAcceptHandler([&](std::uint64_t connection_id,
+                                  std::chrono::steady_clock::time_point accept_time) {
+            auto session = server.createSession(config, accept_time);
+            {
+                std::lock_guard<std::mutex> lock(sessions_mutex);
+                sessions.emplace(connection_id, session);
+            }
+            pipeline.registerConnection(connection_id);
+        });
+        loop.setReadHandler([&](std::uint64_t connection_id,
+                                const std::vector<std::uint8_t> &payload,
+                                std::chrono::steady_clock::time_point read_time) {
+            pipeline.onRead(connection_id, payload, read_time);
+        });
+        loop.setWriteHandler([&](std::uint64_t, std::size_t,
+                                 std::chrono::steady_clock::time_point) {
+            wrote += 1;
+        });
+        loop.setDisconnectHandler([&](std::uint64_t connection_id,
+                                      std::chrono::steady_clock::time_point) {
+            pipeline.removeConnection(connection_id);
+            std::lock_guard<std::mutex> lock(sessions_mutex);
+            sessions.erase(connection_id);
+        });
+
+        dispatcher.start();
+        loop.enqueueEvent({net::IoEvent::Type::Accept, 10});
+        net::LoginRequest login{"user1", "letmein"};
+        auto login_payload = net::encodeLoginRequest(login);
+        auto frame = net::Codec::encode(
+            static_cast<std::uint16_t>(net::PacketType::LoginReq),
+            net::kMinProtocolVersion, login_payload);
+        loop.enqueueEvent({net::IoEvent::Type::Read, 10, frame, frame.size()});
+        loop.drain(now);
+
+        auto timeout_at = now + seconds{2};
+        while (steady_clock::now() < timeout_at && dispatched.load() < 1) {
+            std::this_thread::sleep_for(milliseconds{5});
+        }
+        assert(dispatched.load() == 1);
+
+        std::vector<std::uint8_t> response_frame;
+        {
+            std::lock_guard<std::mutex> lock(sessions_mutex);
+            auto session = sessions.at(10);
+            assert(session->dequeueSend(response_frame));
+        }
+        std::vector<std::uint8_t> response_payload;
+        assert_payload_type(response_frame, net::PacketType::LoginRes,
+                            net::kMinProtocolVersion, response_payload);
+        net::LoginResponse response;
+        assert(net::decodeLoginResponse(response_payload, response));
+        assert(response.accepted);
+        dispatcher.stop();
+        assert(wrote.load() == 0);
+    }
+
+    {
+        std::atomic<int> processed{0};
+        net::PacketDispatcher dispatcher(
+            4,
+            [&](const net::PacketJob &) { processed.fetch_add(1); },
+            net::PacketQueue::Config{16, net::PacketQueue::Config::OverflowPolicy::DropOldest});
+        dispatcher.start();
+
+        for (int i = 0; i < 128; ++i) {
+            dispatcher.enqueue(net::PacketJob{});
+        }
+
+        auto deadline = steady_clock::now() + seconds{2};
+        while (steady_clock::now() < deadline && processed.load() < 32) {
+            std::this_thread::sleep_for(milliseconds{2});
+        }
+        dispatcher.stop();
+        assert(processed.load() > 0);
+    }
+
+    {
+        net::PacketQueue queue(
+            net::PacketQueue::Config{4, net::PacketQueue::Config::OverflowPolicy::DropNewest});
+        for (int i = 0; i < 10; ++i) {
+            queue.push(net::PacketJob{});
+        }
+        assert(queue.droppedCount() > 0);
     }
 
     std::cout << "All tests passed.\n";
