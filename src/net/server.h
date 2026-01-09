@@ -8,6 +8,7 @@
 #include "net/auth.h"
 #include "net/codec.h"
 #include "net/protocol.h"
+#include "net/security.h"
 #include "net/session.h"
 #include "party/party.h"
 #include "dungeon/instance_manager.h"
@@ -22,6 +23,13 @@
 
 namespace net {
 
+struct SecurityPolicy {
+    bool require_tls{false};
+    bool require_hmac{false};
+    bool enable_replay_protection{false};
+    std::string hmac_key{"dev-secret"};
+};
+
 class Server {
 public:
     using SessionId = Session::SessionId;
@@ -32,7 +40,8 @@ public:
         std::uint64_t error_total{0};
     };
 
-    explicit Server(std::shared_ptr<inventory::InventoryStorage> inventory_storage = nullptr);
+    explicit Server(std::shared_ptr<inventory::InventoryStorage> inventory_storage = nullptr,
+                    SecurityPolicy security_policy = SecurityPolicy{});
 
     std::shared_ptr<Session> createSession(
         const SessionConfig &config,
@@ -95,6 +104,7 @@ private:
     Metrics metrics_{};
     std::chrono::steady_clock::time_point started_at_;
     admin::StructuredLogger logger_{};
+    SecurityPolicy security_policy_{};
 };
 
 }  // namespace net

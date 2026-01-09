@@ -1,3 +1,4 @@
+#include "dungeon/authoritative_validation.h"
 #include "dungeon/instance_manager.h"
 #include "party/party.h"
 
@@ -126,6 +127,17 @@ int main() {
         assert(!manager.requestTransition(*instance_id,
                                           dungeon::InstanceState::Ready,
                                           party_service));
+    }
+
+    {
+        dungeon::MovementValidator validator(5.0f);
+        dungeon::MovementSample valid{1, 4.0f, milliseconds{1000}};
+        std::string reason;
+        assert(validator.validate(valid, reason));
+
+        dungeon::MovementSample invalid{1, 20.0f, milliseconds{1000}};
+        assert(!validator.validate(invalid, reason));
+        assert(reason == "Movement speed exceeds server limit");
     }
 
     return 0;

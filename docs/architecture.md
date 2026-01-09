@@ -32,9 +32,22 @@
   3. **Dispatch**: 워커 스레드 풀에서 핸들러 실행 → 응답 프레임 생성
   4. **Write**: 응답 프레임을 소켓 write로 전달
 
-## 2. 세션/매칭/던전 흐름 다이어그램
+## 2. 서버 Authoritative 검증 정책
+- **이동(Movement)**: 클라이언트 위치/속도는 참고값으로만 사용하고, 서버가 마지막 승인 위치와 속도 한계를 기준으로 보정한다.
+- **전투(Combat)**: 스킬 쿨타임/사거리/타겟 유효성은 서버 상태를 기준으로 검증하며, 클라이언트 판정은 신뢰하지 않는다.
+- **보상(Reward)**: 보상 지급은 던전 상태 전이(CLEAR/FAIL)와 서버 계산 결과를 기준으로만 수행한다.
+- **세션/권한**: 계정/세션 토큰은 모든 요청에 대해 서버에서 재검증하고, 권한이 부족한 요청은 즉시 거부한다.
 
-### 2.1 세션 라이프사이클
+## 3. 이상 징후 처리 흐름
+1. **탐지**: 서명/HMAC 검증 실패, 비정상 seq/nonce, 과도한 이동 속도, 불가능한 데미지 등 규칙 위반 탐지.
+2. **완화**: 요청 거부, 상태 롤백, 즉시 응답 차단(soft drop)으로 영향 최소화.
+3. **기록**: 세션/계정 단위의 감사 로그와 메트릭을 기록하고, 자동 경보를 발생시킨다.
+4. **제재**: 반복 위반 시 세션 종료, 임시 제한, 영구 정지까지 단계적으로 적용한다.
+5. **분석**: 운영/보안 대시보드에서 패턴 분석 후 룰 업데이트와 재발 방지 정책을 반영한다.
+
+## 4. 세션/매칭/던전 흐름 다이어그램
+
+### 4.1 세션 라이프사이클
 ```mermaid
 flowchart LR
     Client -->|LoginReq| Gateway
@@ -46,7 +59,7 @@ flowchart LR
     Gateway -->|SessionReconnectRes| Client
 ```
 
-### 2.2 매칭 플로우
+### 4.2 매칭 플로우
 ```mermaid
 sequenceDiagram
     participant C as Client
@@ -69,7 +82,7 @@ sequenceDiagram
     G-->>C: MatchCancelRes
 ```
 
-### 2.3 던전 입장/종료 플로우
+### 4.3 던전 입장/종료 플로우
 ```mermaid
 sequenceDiagram
     participant C as Client
@@ -94,7 +107,7 @@ sequenceDiagram
     I-->>C: InventoryUpdateNotify
 ```
 
-## 3. 상태 머신 정의
+## 5. 상태 머신 정의
 - **WAITING**: 인원 대기, 초대/수락 단계
 - **READY**: 전투 시작 준비, 타임아웃/준비 확인
 - **PLAYING**: 전투 진행, 이벤트/데미지/아이템 처리
@@ -108,7 +121,7 @@ sequenceDiagram
 - `PLAYING -> CLEAR/FAIL`: 던전 목표 달성 또는 실패 조건
 - `CLEAR/FAIL -> TERMINATE`: 보상 지급 및 인벤토리 반영 완료
 
-## 4. 주요 데이터 모델
+## 6. 주요 데이터 모델
 - **users**: `id`, `account`, `last_login`, `status`
 - **characters**: `id`, `user_id`, `job`, `level`, `power`
 - **inventory**: `char_id`, `item_id`, `count`
@@ -119,7 +132,7 @@ sequenceDiagram
 - **guilds**: `guild_id`, `name`, `leader_id`
 - **guild_members**: `guild_id`, `char_id`, `role`
 
-### 4.1 인덱싱/쿼리 예시
+### 6.1 인덱싱/쿼리 예시
 - **inventory** 복합 인덱스
   ```sql
   CREATE INDEX idx_inventory_char_item
@@ -140,7 +153,7 @@ sequenceDiagram
   ```
   - 캐릭터별 최근 매치 기록 조회에 최적화
 
-## 5. 프로토콜 요약
+## 7. 프로토콜 요약
 - **LoginReq/LoginRes**: 토큰 발급 및 세션 생성
 - **PartyCreateReq/PartyInviteReq/PartyJoinRes**: 파티 생성 및 초대
 - **MatchReq/MatchFoundNotify**: 매칭 요청 및 인스턴스 할당/입장 티켓 수신

@@ -23,11 +23,14 @@ struct DamageEvent {
     std::int32_t amount{0};
 };
 
+using SkillValidator = std::function<bool(const SkillEvent &event)>;
+
 class Dispatcher {
 public:
     using SkillHandler = std::function<std::optional<DamageEvent>(const SkillEvent &event)>;
     using DamageHandler = std::function<void(const DamageEvent &event)>;
 
+    void setSkillValidator(SkillValidator validator);
     void setSkillHandler(SkillHandler handler);
     void setDamageHandler(DamageHandler handler);
 
@@ -39,6 +42,7 @@ public:
 private:
     DamageEvent buildDamageFromSkill(const SkillEvent &event) const;
 
+    SkillValidator skill_validator_{};
     SkillHandler skill_handler_;
     DamageHandler damage_handler_;
     std::vector<DamageEvent> damage_history_;

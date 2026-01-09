@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <deque>
 #include <optional>
+#include <unordered_set>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,7 @@ struct SessionConfig {
     OverflowPolicy overflow_policy{OverflowPolicy::DropNewest};
     double rate_limit_capacity{65536.0};
     double rate_limit_refill_per_sec{32768.0};
+    std::size_t nonce_cache_limit{64};
 };
 
 struct TokenBucket {
@@ -66,6 +68,10 @@ public:
     std::uint16_t protocolVersion() const;
     void setLastSeq(std::uint64_t last_seq);
     std::uint64_t lastSeq() const;
+    bool recordNonce(std::uint64_t nonce);
+    bool tlsEstablished() const;
+    void markTlsEstablished(std::chrono::milliseconds handshake_time);
+    std::chrono::milliseconds tlsHandshakeTime() const;
     bool dequeueSend(std::vector<std::uint8_t> &payload);
 
 private:
@@ -84,6 +90,10 @@ private:
     std::string trace_id_;
     std::uint16_t protocol_version_{0};
     std::uint64_t last_seq_{0};
+    std::unordered_set<std::uint64_t> nonce_cache_;
+    std::deque<std::uint64_t> nonce_order_;
+    bool tls_established_{false};
+    std::chrono::milliseconds tls_handshake_time_{0};
 };
 
 }  // namespace net
